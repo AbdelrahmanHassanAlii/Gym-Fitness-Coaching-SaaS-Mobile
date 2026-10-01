@@ -14,8 +14,10 @@ const retryableServerStatuses = new Set([408, 429, 500, 502, 503, 504]);
 
 export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
   if (failureCount >= 2) return false;
+  if (isAbortLikeError(error)) return false;
 
   if (!isApiClientError(error)) return true;
+  if (error.kind === 'abort' || error.kind === 'malformed_response') return false;
   if (error.kind === 'network') return true;
   if (!error.status) return false;
   if (nonRetryableStatuses.has(error.status)) return false;
@@ -49,4 +51,13 @@ export function isProtectedQuery(query: Query): boolean {
 
 export function clearProtectedQueryCache(queryClient: QueryClient = appQueryClient): void {
   queryClient.removeQueries({ predicate: isProtectedQuery });
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'name' in error &&
+      (error as { name?: unknown }).name === 'AbortError',
+  );
 }

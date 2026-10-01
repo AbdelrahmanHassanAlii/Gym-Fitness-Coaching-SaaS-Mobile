@@ -33,12 +33,19 @@ export function appQueryKey(options: AppQueryKeyOptions): readonly unknown[] {
 export function assertSafeQueryKeyObject(value: unknown): void {
   if (!value || typeof value !== 'object') return;
 
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      assertSafeQueryKeyObject(item);
+    }
+    return;
+  }
+
   for (const [key, nestedValue] of Object.entries(value)) {
     if (forbiddenKeyPattern.test(key)) {
       throw new Error(`Query key field "${key}" may contain sensitive data.`);
     }
 
-    if (nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
+    if (nestedValue && typeof nestedValue === 'object') {
       assertSafeQueryKeyObject(nestedValue);
     }
   }

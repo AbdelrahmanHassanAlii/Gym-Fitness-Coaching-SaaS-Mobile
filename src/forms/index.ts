@@ -13,6 +13,7 @@ export type {
 } from 'react-hook-form';
 
 export type BackendFieldErrorMap = Record<string, string[]>;
+export type PreservedBackendValidationDetails = unknown;
 
 export function createFormConfig<TValues extends FieldValues>(
   config: UseFormProps<TValues>,
@@ -24,20 +25,8 @@ export function createFormConfig<TValues extends FieldValues>(
   };
 }
 
-export function mapBackendFieldErrors(details: unknown): BackendFieldErrorMap {
-  if (!details || typeof details !== 'object') return {};
-
-  const fieldErrors = (details as { fieldErrors?: unknown }).fieldErrors;
-  if (!fieldErrors || typeof fieldErrors !== 'object') return {};
-
-  const result: BackendFieldErrorMap = {};
-  for (const [field, value] of Object.entries(fieldErrors)) {
-    if (typeof value === 'string') {
-      result[field] = [value];
-    } else if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
-      result[field] = value;
-    }
-  }
-
-  return result;
+export function preserveBackendValidationDetails(
+  details: unknown,
+): PreservedBackendValidationDetails {
+  return details ?? null;
 }

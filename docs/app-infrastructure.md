@@ -22,6 +22,10 @@ The implementation delegates to `expo-secure-store` and exposes:
 - `write`
 - `delete`
 
+MOB-008 does not pass custom SecureStore options. It relies on the Expo SDK 57
+compatible module defaults and does not claim stronger platform guarantees than
+Expo SecureStore provides.
+
 Failures are wrapped in `SecureStorageError` with the operation and key. There
 is no AsyncStorage fallback for sensitive values. This is deliberate: if
 SecureStore fails, future auth code must make a security-safe decision rather
@@ -86,20 +90,25 @@ universal cursor DTO. Infinite pagination helpers accept endpoint-specific
 ## Forms And Validation
 
 React Hook Form is the form infrastructure. MOB-008 adds generic defaults and a
-small adapter for verified Backend `fieldErrors` details when present.
+small helper that preserves backend validation details for endpoint-specific
+handling later.
 
 No product form is implemented. No schema library is added in MOB-008. Backend
-validation remains authoritative, and endpoint-specific client validation can be
-added with product forms when their DTOs and UX exist.
+validation remains authoritative. MOB-006 does not prove a universal field-path
+shape for all validation errors, so MOB-008 does not map arbitrary backend
+details into form fields. Endpoint-specific client validation and field mapping
+can be added with product forms when their DTOs and UX exist.
 
 ## Date And Time
 
-`DateOnly` is a business-local `YYYY-MM-DD` value and is preserved lexically. It
-is never converted to midnight UTC or device-local midnight by MOB-008.
+`DateOnly` is a business-local `YYYY-MM-DD` value and is preserved lexically.
+MOB-008 validates calendar reality, including leap years, and never converts
+DateOnly to midnight UTC or device-local midnight.
 
-Timestamps are instants and must include `Z` or an explicit offset. Formatting an
-instant requires an explicit locale and IANA timezone, keeping Arabic/English and
-workspace-timezone display choices visible to callers.
+Timestamps are instants and must include `Z` or an explicit offset. MOB-008
+validates the timestamp calendar/time portion before formatting. Formatting an
+instant requires an explicit locale and valid IANA timezone, keeping
+Arabic/English and workspace-timezone display choices visible to callers.
 
 `[from,to)` ranges preserve exclusive `to`. Helpers do not convert to inclusive
 end-of-day and do not subtract milliseconds.
