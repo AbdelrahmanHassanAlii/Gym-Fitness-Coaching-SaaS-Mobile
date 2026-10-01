@@ -89,3 +89,15 @@ npm run test
 - Mobile: this repository
 
 MOB-001 does not integrate with Backend runtime behavior and does not modify Backend or Web.
+
+## MOB-002 Architecture And Environment Strategy
+
+MOB-002 defines the Mobile architecture conventions and Expo-safe environment strategy without adding product features.
+
+- Architecture: [docs/mobile-architecture.md](docs/mobile-architecture.md)
+- Environment and build strategy: [docs/environment-and-build.md](docs/environment-and-build.md)
+- Public client config seam: `src/config/publicConfig.ts`
+
+Use `@/*` for imports from `src/*`. Keep aliases intentionally small.
+
+Mobile code is shipped client code. Do not put Backend credentials, service credentials, private keys, admin tokens, or other secrets in Expo public config or any app-bundled module.
