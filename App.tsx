@@ -6,7 +6,9 @@ import { publicClientConfig } from '@/config/publicConfig';
 export default function App() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Hassan Gym & Fitness Coaching</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Hassan Gym & Fitness Coaching
+      </Text>
       <Text style={styles.subtitle}>Mobile app foundation</Text>
       <Text style={styles.environment}>
         Environment: {publicClientConfig.appEnvironment}

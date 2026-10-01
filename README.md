@@ -75,12 +75,14 @@ iOS simulator/runtime validation requires macOS and Xcode. On other platforms, u
 ```bash
 npm run typecheck
 npm run lint
-npm run doctor
-npm run smoke
 npm run test
+npm run doctor
+npm run deps:check
+npm run export:ci
+npm run smoke
 ```
 
-`npm run test` is a MOB-001 placeholder smoke command. The real test foundation belongs to MOB-005.
+`npm run test` is a real Jest test command established by MOB-005. See `docs/testing.md` for unit, component, integration, accessibility, and future E2E conventions.
 
 ## Repository Boundaries
 
