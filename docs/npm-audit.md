@@ -1,10 +1,10 @@
 # Npm Audit Follow-Up
 
-MOB-005 re-evaluated the MOB-001 audit findings after installing the testing foundation.
+MOB-005 re-evaluated the MOB-001 audit findings after installing the testing foundation. The MOB-002 through MOB-005 integration rechecked the result after adding architecture, theme, i18n/RTL, AsyncStorage, Expo Localization, and test dependencies.
 
 ## Current Result
 
-`npm audit --json` still reports 10 moderate findings:
+`npm audit --json` still reports 10 moderate findings after integration:
 
 - `expo` direct package, via Expo tooling dependencies;
 - transitive `@expo/cli`;

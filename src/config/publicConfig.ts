@@ -14,6 +14,11 @@ export type PublicClientConfig = Readonly<{
   backendBaseUrl: string | null;
 }>;
 
+type PublicClientConfigEnv = {
+  EXPO_PUBLIC_API_BASE_URL?: string;
+  EXPO_PUBLIC_APP_ENV?: string;
+};
+
 function readAppEnvironment(value: string | undefined): AppEnvironment {
   if (appEnvironments.includes(value as AppEnvironment)) {
     return value as AppEnvironment;
@@ -32,7 +37,13 @@ function readOptionalUrl(value: string | undefined): string | null {
   return trimmedValue;
 }
 
-export const publicClientConfig: PublicClientConfig = Object.freeze({
-  appEnvironment: readAppEnvironment(process.env.EXPO_PUBLIC_APP_ENV),
-  backendBaseUrl: readOptionalUrl(process.env.EXPO_PUBLIC_API_BASE_URL),
-});
+export function createPublicClientConfig(
+  env: PublicClientConfigEnv,
+): PublicClientConfig {
+  return Object.freeze({
+    appEnvironment: readAppEnvironment(env.EXPO_PUBLIC_APP_ENV),
+    backendBaseUrl: readOptionalUrl(env.EXPO_PUBLIC_API_BASE_URL),
+  });
+}
+
+export const publicClientConfig = createPublicClientConfig(process.env);
