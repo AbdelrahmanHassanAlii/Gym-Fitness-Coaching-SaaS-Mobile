@@ -30,6 +30,7 @@ export interface AuthProviderProps extends PropsWithChildren {
 }
 
 export function AuthProvider({ children, controller }: AuthProviderProps) {
+  const ownsController = !controller;
   const sessionController = useMemo(
     () => controller ?? createAuthSessionController(),
     [controller],
@@ -41,6 +42,13 @@ export function AuthProvider({ children, controller }: AuthProviderProps) {
   useEffect(() => {
     void sessionController.initialize().catch(() => undefined);
   }, [sessionController]);
+
+  useEffect(
+    () => () => {
+      if (ownsController) sessionController.dispose();
+    },
+    [ownsController, sessionController],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({

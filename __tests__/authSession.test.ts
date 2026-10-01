@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { QueryClient } from '@tanstack/react-query';
 
 import {
@@ -17,6 +17,7 @@ import {
 } from '@/storage';
 
 const jsonHeaders = { 'content-type': 'application/json' };
+const queryClients: QueryClient[] = [];
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -79,6 +80,8 @@ class MemoryCredentialStore implements SensitiveValueStore {
   readError: unknown;
   writeError: unknown;
   deleteError: unknown;
+  writeSideEffectBeforeThrow = false;
+  deleteSideEffectBeforeThrow = false;
   writeDeferrals: ReturnType<typeof deferred<void>>[] = [];
   deleteDeferrals: ReturnType<typeof deferred<void>>[] = [];
 
@@ -95,6 +98,7 @@ class MemoryCredentialStore implements SensitiveValueStore {
     this.writes.push(value);
     const pending = this.writeDeferrals.shift();
     if (pending) await pending.promise;
+    if (this.writeSideEffectBeforeThrow) this.value = value;
     if (this.writeError) throw this.writeError;
     this.value = value;
   }
@@ -103,15 +107,18 @@ class MemoryCredentialStore implements SensitiveValueStore {
     this.deletes += 1;
     const pending = this.deleteDeferrals.shift();
     if (pending) await pending.promise;
+    if (this.deleteSideEffectBeforeThrow) this.value = null;
     if (this.deleteError) throw this.deleteError;
     this.value = null;
   }
 }
 
 function createQueryClient() {
-  return new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
   });
+  queryClients.push(queryClient);
+  return queryClient;
 }
 
 function createApiStub(responses: unknown[]): { apiClient: ApiClient; calls: ApiRequestOptions<never, never>[] } {
@@ -130,6 +137,13 @@ function createApiStub(responses: unknown[]): { apiClient: ApiClient; calls: Api
 }
 
 describe('auth session lifecycle', () => {
+  afterEach(() => {
+    for (const queryClient of queryClients) {
+      queryClient.clear();
+    }
+    queryClients.length = 0;
+  });
+
   it('starts initializing and becomes unauthenticated when no refresh token is stored', async () => {
     const controller = new AuthSessionController({
       apiClient: createApiStub([]).apiClient,
@@ -535,5 +549,301 @@ describe('auth session lifecycle', () => {
     expect(sensitiveStorageKeys.nativeRefreshToken).not.toContain('refresh-login');
     logSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+
+  it('does not poison the credential queue after write or delete failure', async () => {
+    const store = new MemoryCredentialStore(null);
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([
+        loginEnvelope('access-A', 'refresh-A'),
+        loginEnvelope('access-B', 'refresh-B'),
+        { data: { success: true } },
+        loginEnvelope('access-C', 'refresh-C'),
+      ]).apiClient,
+      credentialStore: store,
+      queryClient: createQueryClient(),
+    });
+
+    store.writeError = new Error('write failed');
+    await expect(controller.login({ identifier: 'a', password: 'password' })).rejects.toMatchObject({
+      reason: 'secure_storage_write_failed',
+    });
+
+    store.writeError = undefined;
+    await expect(controller.login({ identifier: 'b', password: 'password' })).resolves.toMatchObject({
+      status: 'authenticated',
+    });
+    expect(store.value).toBe('refresh-B');
+
+    store.deleteError = new Error('delete failed');
+    await expect(controller.logout()).rejects.toMatchObject({
+      reason: 'secure_storage_delete_failed',
+    });
+
+    store.deleteError = undefined;
+    await expect(controller.login({ identifier: 'c', password: 'password' })).resolves.toMatchObject({
+      status: 'authenticated',
+    });
+    expect(store.value).toBe('refresh-C');
+  });
+
+  it('treats write-then-throw as storage uncertainty and blocks same-process bootstrap reuse', async () => {
+    const store = new MemoryCredentialStore(null);
+    store.writeError = new Error('native write rejected');
+    store.writeSideEffectBeforeThrow = true;
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([loginEnvelope('access-A', 'refresh-A')]).apiClient,
+      credentialStore: store,
+      queryClient: createQueryClient(),
+    });
+
+    await expect(controller.login({ identifier: 'a', password: 'password' })).rejects.toMatchObject({
+      reason: 'secure_storage_write_failed',
+    });
+    expect(controller.getState().status).toBe('security_failure');
+    expect(controller.authSeam.getAccessToken()).toBeNull();
+    expect(store.value).toBeNull();
+
+    await expect(controller.initialize()).rejects.toMatchObject({
+      reason: 'secure_storage_read_failed',
+    });
+  });
+
+  it('models delete-then-throw as uncertainty but permits explicit fresh login recovery', async () => {
+    const store = new MemoryCredentialStore(null);
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([
+        loginEnvelope('access-A', 'refresh-A'),
+        { data: { success: true } },
+        loginEnvelope('access-B', 'refresh-B'),
+      ]).apiClient,
+      credentialStore: store,
+      queryClient: createQueryClient(),
+    });
+    await controller.login({ identifier: 'a', password: 'password' });
+    store.deleteError = new Error('delete rejected');
+    store.deleteSideEffectBeforeThrow = true;
+
+    await expect(controller.logout()).rejects.toMatchObject({
+      reason: 'secure_storage_delete_failed',
+    });
+    expect(controller.getState().status).toBe('security_failure');
+    expect(store.value).toBeNull();
+
+    store.deleteError = undefined;
+    await expect(controller.login({ identifier: 'b', password: 'password' })).resolves.toMatchObject({
+      status: 'authenticated',
+    });
+    expect(store.value).toBe('refresh-B');
+  });
+
+  it('fails all shared refresh waiters and clears cache when R2 persistence fails', async () => {
+    const store = new MemoryCredentialStore(null);
+    const queryClient = createQueryClient();
+    const refresh = deferred<Response>();
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const call = { url: String(input), init: init ?? {} };
+      calls.push(call);
+      if (call.url.endsWith('/api/v1/auth/refresh')) return await refresh.promise;
+      return backendError(401, 'AUTH_REQUIRED');
+    });
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([loginEnvelope('access-A', 'refresh-R1')]).apiClient,
+      credentialStore: store,
+      queryClient,
+    });
+    await controller.login({ identifier: 'a', password: 'password' });
+    queryClient.setQueryData(controller.protectedQueryKey(controller.getCurrentGeneration(), ['me']), {
+      id: 'old',
+    });
+    store.writes = [];
+    store.writeError = new Error('write failed');
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test',
+      fetch: fetchMock,
+      auth: controller.authSeam,
+    });
+
+    const requests = Array.from({ length: 10 }, (_, index) =>
+      client.request({ method: 'GET', path: `/protected-${index}` }),
+    );
+    await Promise.resolve();
+    refresh.resolve(
+      jsonResponse({
+        data: { accessToken: 'access-B', refreshToken: 'refresh-R2', restrictedUntilVerified: false },
+      }),
+    );
+
+    await expect(Promise.all(requests)).rejects.toMatchObject({ kind: 'authentication' });
+    expect(calls.filter((call) => call.url.endsWith('/api/v1/auth/refresh'))).toHaveLength(1);
+    expect(store.writes).toEqual(['refresh-R2']);
+    expect(controller.authSeam.getAccessToken()).toBeNull();
+    expect(controller.getState().status).toBe('unauthenticated');
+    expect(queryClient.getQueryData(controller.protectedQueryKey(1, ['me']))).toBeUndefined();
+  });
+
+  it('does not let old terminal refresh failure clear a newer session', async () => {
+    const store = new MemoryCredentialStore(null);
+    const queryClient = createQueryClient();
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([
+        loginEnvelope('access-A', 'refresh-A'),
+        loginEnvelope('access-B', 'refresh-B'),
+      ]).apiClient,
+      credentialStore: store,
+      queryClient,
+    });
+    await controller.login({ identifier: 'a', password: 'password' });
+    expect(controller.authSeam.getRefreshToken()).toBe('refresh-A');
+    await controller.login({ identifier: 'b', password: 'password' });
+    queryClient.setQueryData(controller.protectedQueryKey(controller.getCurrentGeneration(), ['me']), {
+      id: 'b',
+    });
+
+    await controller.handleTerminalSessionFailure(
+      new ApiClientError({
+        kind: 'authentication',
+        source: 'backend',
+        status: 401,
+        message: 'old expired',
+      }),
+    );
+
+    expect(controller.getState().status).toBe('authenticated');
+    expect(controller.authSeam.getAccessToken()).toBe('access-B');
+    expect(store.value).toBe('refresh-B');
+    expect(
+      queryClient.getQueryData(controller.protectedQueryKey(controller.getCurrentGeneration(), ['me'])),
+    ).toEqual({ id: 'b' });
+  });
+
+  it('does not let old logout completion clear or delete a newer session', async () => {
+    const serverLogout = deferred<unknown>();
+    const store = new MemoryCredentialStore(null);
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([
+        loginEnvelope('access-A', 'refresh-A'),
+        () => serverLogout.promise,
+        loginEnvelope('access-B', 'refresh-B'),
+      ]).apiClient,
+      credentialStore: store,
+      queryClient: createQueryClient(),
+    });
+    await controller.login({ identifier: 'a', password: 'password' });
+
+    const logout = controller.logout();
+    await Promise.resolve();
+    const loginB = controller.login({ identifier: 'b', password: 'password' });
+    serverLogout.resolve({ data: { success: true } });
+
+    await expect(logout).resolves.toMatchObject({ status: 'unauthenticated' });
+    await expect(loginB).resolves.toMatchObject({ status: 'authenticated' });
+    expect(controller.getState().status).toBe('authenticated');
+    expect(controller.authSeam.getAccessToken()).toBe('access-B');
+    expect(store.value).toBe('refresh-B');
+  });
+
+  it('keeps latest login B when login A resolves or fails late', async () => {
+    const lateA = deferred<LoginResponseDto>();
+    const store = new MemoryCredentialStore(null);
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([
+        () => lateA.promise,
+        loginEnvelope('access-B', 'refresh-B'),
+      ]).apiClient,
+      credentialStore: store,
+      queryClient: createQueryClient(),
+    });
+
+    const loginA = controller.login({ identifier: 'a', password: 'password' });
+    await Promise.resolve();
+    const loginB = controller.login({ identifier: 'b', password: 'password' });
+    lateA.resolve(loginEnvelope('access-A', 'refresh-A'));
+
+    await expect(loginA).rejects.toMatchObject({ reason: 'stale_credential_result' });
+    await expect(loginB).resolves.toMatchObject({ status: 'authenticated' });
+    expect(controller.authSeam.getAccessToken()).toBe('access-B');
+    expect(store.value).toBe('refresh-B');
+
+    const failingA = deferred<LoginResponseDto>();
+    const second = new AuthSessionController({
+      apiClient: createApiStub([
+        () => failingA.promise,
+        loginEnvelope('access-D', 'refresh-D'),
+      ]).apiClient,
+      credentialStore: new MemoryCredentialStore(null),
+      queryClient: createQueryClient(),
+    });
+    const oldLogin = second.login({ identifier: 'old', password: 'password' });
+    await Promise.resolve();
+    const newLogin = second.login({ identifier: 'new', password: 'password' });
+    failingA.reject(new Error('old network failure'));
+
+    await expect(oldLogin).rejects.toMatchObject({ reason: 'stale_credential_result' });
+    await expect(newLogin).resolves.toMatchObject({ status: 'authenticated' });
+    expect(second.authSeam.getAccessToken()).toBe('access-D');
+  });
+
+  it('does not let stale MFA completion overwrite a newer login session', async () => {
+    const lateMfa = deferred<AuthTokenResponseDto>();
+    const store = new MemoryCredentialStore(null);
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([
+        () => lateMfa.promise,
+        loginEnvelope('access-B', 'refresh-B'),
+      ]).apiClient,
+      credentialStore: store,
+      queryClient: createQueryClient(),
+    });
+
+    const mfa = controller.completeMfaLogin({
+      mfaChallengeToken: 'challenge-A',
+      factorType: 'TOTP',
+      credential: '111111',
+    });
+    await Promise.resolve();
+    const loginB = controller.login({ identifier: 'b', password: 'password' });
+    lateMfa.resolve(authEnvelope('access-A', 'refresh-A'));
+
+    await expect(mfa).rejects.toMatchObject({ reason: 'stale_credential_result' });
+    await expect(loginB).resolves.toMatchObject({ status: 'authenticated' });
+    expect(controller.authSeam.getAccessToken()).toBe('access-B');
+    expect(store.value).toBe('refresh-B');
+  });
+
+  it('removes late protected query results after logout or account replacement', async () => {
+    const queryClient = createQueryClient();
+    const store = new MemoryCredentialStore(null);
+    const controller = new AuthSessionController({
+      apiClient: createApiStub([
+        loginEnvelope('access-A', 'refresh-A'),
+        { data: { success: true } },
+        loginEnvelope('access-B', 'refresh-B'),
+      ]).apiClient,
+      credentialStore: store,
+      queryClient,
+    });
+    await controller.login({ identifier: 'a', password: 'password' });
+    const generationA = controller.getCurrentGeneration();
+    const queryA = queryClient.fetchQuery({
+      queryKey: controller.protectedQueryKey(generationA, ['profile']),
+      queryFn: async () => ({ id: 'a' }),
+    });
+    const queryASettled = queryA.catch((error: unknown) => error);
+
+    await controller.logout();
+    await queryASettled;
+    expect(queryClient.getQueryData(controller.protectedQueryKey(generationA, ['profile']))).toBeUndefined();
+
+    await controller.login({ identifier: 'b', password: 'password' });
+    const generationB = controller.getCurrentGeneration();
+    queryClient.setQueryData(controller.protectedQueryKey(generationA, ['profile']), { id: 'a-late' });
+    queryClient.setQueryData(controller.protectedQueryKey(generationB, ['profile']), { id: 'b' });
+
+    expect(queryClient.getQueryData(controller.protectedQueryKey(generationA, ['profile']))).toBeUndefined();
+    expect(queryClient.getQueryData(controller.protectedQueryKey(generationB, ['profile']))).toEqual({
+      id: 'b',
+    });
   });
 });

@@ -83,6 +83,15 @@ continue as authenticated. It clears in-memory credentials and protected cache
 and enters `security_failure`. It does not reuse `R1`, does not write `R2` to
 AsyncStorage, and does not claim rollback.
 
+Native storage failures are treated as credential-state uncertainty, because a
+platform API can theoretically mutate the physical slot and then reject. MOB-009
+attempts best-effort local cleanup after a failed write. If cleanup cannot be
+proven, the current process blocks bootstrap from blindly reading the same slot
+again. A process restart cannot preserve that in-memory tombstone; on cold
+restart Mobile can only read whatever SecureStore durably contains and rely on
+Backend refresh rotation/reuse detection. MOB-009 does not add speculative
+durable failure metadata.
+
 ## MOB-007 Refresh Callback
 
 MOB-007 calls `onCredentialsRefreshed({ accessToken, refreshToken })` once per
@@ -128,7 +137,11 @@ cache. Delete failure is surfaced as `security_failure`.
 
 MOB-009 clears MOB-008 protected query cache on account replacement, logout,
 terminal session failure, and failed security-critical credential persistence.
-The helper `setProtectedQueryDataIfCurrent` lets future session-aware query
-bridges avoid writing old protected data after logout or account replacement.
+Protected query keys owned by auth/session-aware code include the current
+session generation: `["session", generation, ...parts]`. The helper
+`setProtectedQueryDataIfCurrent` lets future session-aware query bridges avoid
+writing old protected data after logout or account replacement. MOB-009 also
+removes protected queries whose generation does not match the current
+authenticated generation.
 
 MOB-010 owns permission/context UX. MOB-011 owns role-aware navigation.

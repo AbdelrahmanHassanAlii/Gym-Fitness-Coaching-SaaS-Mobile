@@ -20,7 +20,12 @@ import {
   type RefreshRequestDto,
   type SafeUserDto,
 } from '@/contracts';
-import { appQueryClient, clearProtectedQueryCache } from '@/query';
+import {
+  appQueryClient,
+  clearProtectedQueryCache,
+  isProtectedQuery,
+  protectedQueryScope,
+} from '@/query';
 import {
   secureStorage,
   sensitiveStorageKeys,
@@ -99,9 +104,12 @@ export class AuthSessionController {
   private state: AuthState = { status: 'initializing' };
   private accessToken: string | null = null;
   private currentRefreshToken: string | null = null;
+  private pendingRefreshToken: string | null = null;
   private generation = 0;
   private refreshCallbackGeneration: number | null = null;
   private bootstrapPromise: Promise<void> | null = null;
+  private credentialStorageUncertain = false;
+  private readonly unsubscribeQueryCache: () => void;
 
   constructor({
     apiClient,
@@ -111,6 +119,9 @@ export class AuthSessionController {
     this.credentialStore = credentialStore;
     this.queryClient = queryClient;
     this.apiClient = apiClient;
+    this.unsubscribeQueryCache = this.queryClient.getQueryCache().subscribe(() => {
+      this.removeStaleProtectedQueries();
+    });
   }
 
   readonly authSeam = {
@@ -190,7 +201,7 @@ export class AuthSessionController {
         throw toAuthSessionError('stale_credential_result', error);
       }
       this.clearCredentialMemory();
-      clearProtectedQueryCache(this.queryClient);
+      this.clearProtectedSessionState();
       const authError = isApiClientError(error)
         ? new AuthSessionError('login_failed', 'Login failed.', error)
         : toAuthSessionError('secure_storage_write_failed', error);
@@ -233,7 +244,7 @@ export class AuthSessionController {
         throw toAuthSessionError('stale_credential_result', error);
       }
       this.clearCredentialMemory();
-      clearProtectedQueryCache(this.queryClient);
+      this.clearProtectedSessionState();
       const authError = isApiClientError(error)
         ? new AuthSessionError('login_failed', 'MFA login failed.', error)
         : toAuthSessionError('secure_storage_write_failed', error);
@@ -245,7 +256,7 @@ export class AuthSessionController {
   async logout(): Promise<AuthState> {
     const logoutGeneration = this.generation;
     const accessToken = this.accessToken;
-    this.startNewGeneration({ clearCache: true });
+    const operationGeneration = this.startNewGeneration({ clearCache: true });
     this.clearCredentialMemory();
     this.setState(unauthenticatedState);
 
@@ -265,12 +276,18 @@ export class AuthSessionController {
     try {
       await this.deleteCredentialForLogout(logoutGeneration);
     } catch (error) {
+      if (operationGeneration !== this.generation) {
+        return this.state;
+      }
       const authError = toAuthSessionError('secure_storage_delete_failed', error);
       this.setState({ status: 'security_failure', error: authError });
       throw authError;
     }
 
     if (serverError) {
+      if (operationGeneration !== this.generation) {
+        return this.state;
+      }
       const authError = new AuthSessionError(
         'logout_server_failed',
         'Server logout could not be confirmed after local credential removal.',
@@ -284,7 +301,10 @@ export class AuthSessionController {
   }
 
   async handleTerminalSessionFailure(error: ApiClientError): Promise<void> {
-    const expiredGeneration = this.generation;
+    const expiredGeneration = this.refreshCallbackGeneration ?? this.generation;
+    this.refreshCallbackGeneration = null;
+    if (expiredGeneration !== this.generation) return;
+
     this.startNewGeneration({ clearCache: true });
     this.clearCredentialMemory();
     try {
@@ -307,11 +327,28 @@ export class AuthSessionController {
     data: TData,
   ): boolean {
     if (generation !== this.generation || this.state.status !== 'authenticated') return false;
-    this.queryClient.setQueryData(queryKey, data);
+    this.queryClient.setQueryData(this.protectedQueryKey(generation, queryKey), data);
     return true;
   }
 
+  protectedQueryKey(generation: number, parts: readonly unknown[]): readonly unknown[] {
+    return [protectedQueryScope, generation, ...parts] as const;
+  }
+
+  dispose(): void {
+    this.unsubscribeQueryCache();
+  }
+
   private async bootstrap(): Promise<void> {
+    if (this.credentialStorageUncertain) {
+      const authError = new AuthSessionError(
+        'secure_storage_read_failed',
+        'Secure credential storage is uncertain after a previous failed mutation.',
+      );
+      this.setState({ status: 'security_failure', error: authError });
+      throw authError;
+    }
+
     const generation = this.startNewGeneration({ clearCache: true });
     this.setState({ status: 'initializing' });
 
@@ -356,7 +393,7 @@ export class AuthSessionController {
         throw toAuthSessionError('stale_credential_result', error);
       }
       this.clearCredentialMemory();
-      clearProtectedQueryCache(this.queryClient);
+      this.clearProtectedSessionState();
       const authError = isApiClientError(error)
         ? new AuthSessionError('bootstrap_refresh_failed', 'Bootstrap refresh failed.', error)
         : toAuthSessionError('secure_storage_write_failed', error);
@@ -378,6 +415,7 @@ export class AuthSessionController {
 
       this.accessToken = credentials.accessToken;
       this.currentRefreshToken = credentials.refreshToken;
+      this.pendingRefreshToken = null;
       this.setState({
         ...this.state,
         session: this.state.session
@@ -398,6 +436,10 @@ export class AuthSessionController {
     generation: number,
     refreshToken: string,
   ): Promise<void> {
+    if (generation === this.generation) {
+      this.pendingRefreshToken = refreshToken;
+    }
+
     await this.enqueueCredentialMutation(async () => {
       if (generation !== this.generation) {
         throw new AuthSessionError(
@@ -409,6 +451,10 @@ export class AuthSessionController {
       try {
         await this.credentialStore.write(sensitiveStorageKeys.nativeRefreshToken, refreshToken);
       } catch (error) {
+        this.credentialStorageUncertain = true;
+        if (generation === this.generation) {
+          await this.bestEffortDeleteAfterFailedWrite();
+        }
         throw toAuthSessionError('secure_storage_write_failed', error);
       }
       if (generation !== this.generation) {
@@ -418,6 +464,7 @@ export class AuthSessionController {
           'Credential write completed after the session generation changed.',
         );
       }
+      this.credentialStorageUncertain = false;
     });
   }
 
@@ -426,15 +473,39 @@ export class AuthSessionController {
       try {
         await this.credentialStore.delete(sensitiveStorageKeys.nativeRefreshToken);
       } catch (error) {
+        this.credentialStorageUncertain = true;
+        const repairRefreshToken = this.currentRefreshToken ?? this.pendingRefreshToken;
+        if (logoutGeneration !== this.generation && repairRefreshToken) {
+          try {
+            await this.credentialStore.write(
+              sensitiveStorageKeys.nativeRefreshToken,
+              repairRefreshToken,
+            );
+            this.credentialStorageUncertain = false;
+            return;
+          } catch {
+            // Preserve the original delete failure; storage state is uncertain.
+          }
+        }
         throw toAuthSessionError('secure_storage_delete_failed', error);
       }
-      if (logoutGeneration !== this.generation && this.currentRefreshToken) {
+      const repairRefreshToken = this.currentRefreshToken ?? this.pendingRefreshToken;
+      if (logoutGeneration !== this.generation && repairRefreshToken) {
         await this.credentialStore.write(
           sensitiveStorageKeys.nativeRefreshToken,
-          this.currentRefreshToken,
+          repairRefreshToken,
         );
       }
+      this.credentialStorageUncertain = false;
     });
+  }
+
+  private async bestEffortDeleteAfterFailedWrite(): Promise<void> {
+    try {
+      await this.credentialStore.delete(sensitiveStorageKeys.nativeRefreshToken);
+    } catch {
+      // The security_failure state reports storage uncertainty to callers.
+    }
   }
 
   private async repairStoredCredentialForCurrentGeneration(): Promise<void> {
@@ -443,10 +514,12 @@ export class AuthSessionController {
         sensitiveStorageKeys.nativeRefreshToken,
         this.currentRefreshToken,
       );
+      this.credentialStorageUncertain = false;
       return;
     }
 
     await this.credentialStore.delete(sensitiveStorageKeys.nativeRefreshToken);
+    this.credentialStorageUncertain = false;
   }
 
   private async enqueueCredentialMutation<T>(mutation: CredentialMutation<T>): Promise<T> {
@@ -459,8 +532,28 @@ export class AuthSessionController {
     this.generation += 1;
     this.accessToken = null;
     this.currentRefreshToken = null;
-    if (clearCache) clearProtectedQueryCache(this.queryClient);
+    this.pendingRefreshToken = null;
+    if (clearCache) this.clearProtectedSessionState();
     return this.generation;
+  }
+
+  private clearProtectedSessionState(): void {
+    void this.queryClient.cancelQueries({ predicate: isProtectedQuery });
+    clearProtectedQueryCache(this.queryClient);
+  }
+
+  private removeStaleProtectedQueries(): void {
+    const staleQueries = this.queryClient.getQueryCache().findAll({
+      predicate: (query) => {
+        const queryKey = query.queryKey;
+        if (queryKey[0] !== protectedQueryScope) return false;
+        return this.state.status !== 'authenticated' || queryKey[1] !== this.generation;
+      },
+    });
+
+    for (const query of staleQueries) {
+      this.queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+    }
   }
 
   private commitAuthenticatedGeneration(
@@ -479,6 +572,7 @@ export class AuthSessionController {
 
     this.accessToken = credentials.accessToken;
     this.currentRefreshToken = credentials.refreshToken;
+    this.pendingRefreshToken = null;
     this.setState({
       status: 'authenticated',
       session: {
@@ -492,6 +586,7 @@ export class AuthSessionController {
   private clearCredentialMemory(): void {
     this.accessToken = null;
     this.currentRefreshToken = null;
+    this.pendingRefreshToken = null;
   }
 
   private setState(state: AuthState): void {
