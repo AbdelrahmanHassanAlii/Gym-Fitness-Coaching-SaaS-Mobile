@@ -16,6 +16,33 @@ MOB-001 bootstraps the production foundation only:
 
 MOB-001 intentionally does not implement product features, authentication, API clients, role-aware navigation, semantic theming, i18n/RTL infrastructure, secure storage, query caching, forms, or native Android/iOS projects.
 
+## MOB-004 Localization Foundation
+
+MOB-004 adds the mobile localization foundation without adding product screens, navigation, authentication, roles, theme behavior, or secure credential storage.
+
+- Supported locales: English (`en`) and Arabic (`ar`)
+- Default/fallback locale: English (`en`)
+- Device locale signal: `expo-localization` reads device locales on first launch
+- Explicit preference: `@react-native-async-storage/async-storage` stores the selected non-sensitive language under `hassan-gym.language`
+- Locale normalization: region variants such as `en-US` and `ar-EG` normalize to supported base languages
+- Unsupported locales: safely fall back to English
+- Message catalogs: `src/i18n/messages.ts`
+- Locale/direction helpers: `src/i18n/locales.ts` and `src/i18n/rtl.ts`
+
+Explicit user language selection takes precedence over the device locale once stored. Language remains independent from theme, system appearance, and future role state.
+
+### RTL Behavior
+
+Arabic resolves to RTL and English resolves to LTR. The root proof screen uses direction-aware text and layout styles, and `I18nManager.allowRTL(true)` with `I18nManager.forceRTL(...)` sets the native React Native RTL flag.
+
+React Native applies some `I18nManager` direction changes only after the app is reloaded or restarted because native layout direction is initialized at runtime startup. MOB-004 does not force a reload; it shows a restart notice when the selected direction differs from the currently active native direction.
+
+Future UI should prefer direction-neutral layout conventions:
+
+- use `start`/`end` semantics where available instead of hard-coded left/right;
+- avoid assuming row order for meaning;
+- set text `writingDirection` from the resolved locale when text direction matters;
+- keep language preference separate from theme, appearance, auth, and role state.
 ## Baseline
 
 Generated with `create-expo-app@5.0.0` using the `blank-typescript` template on 2026-10-01.
@@ -23,6 +50,8 @@ Generated with `create-expo-app@5.0.0` using the `blank-typescript` template on 
 | Package | Version |
 | --- | --- |
 | Expo SDK | `57.0.0` line (`expo ~57.0.26`) |
+| Expo Localization | `expo-localization ~57.0.2` |
+| AsyncStorage | `@react-native-async-storage/async-storage 2.2.0` |
 | React Native | `0.86.3` |
 | React | `19.2.3` |
 | TypeScript | `~6.0.3` |
