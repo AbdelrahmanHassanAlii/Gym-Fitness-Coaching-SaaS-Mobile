@@ -23,12 +23,15 @@ import {
   type ThemeId,
   type ThemeTokens,
 } from '@/theme';
+import { AppInfrastructureProvider } from '@/providers';
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <FoundationPreview />
-    </ThemeProvider>
+    <AppInfrastructureProvider>
+      <ThemeProvider>
+        <FoundationPreview />
+      </ThemeProvider>
+    </AppInfrastructureProvider>
   );
 }
 

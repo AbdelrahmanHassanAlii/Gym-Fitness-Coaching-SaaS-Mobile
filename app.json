@@ -19,7 +19,8 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
-      "expo-localization"
+      "expo-localization",
+      "expo-secure-store"
     ]
   }
 }
