@@ -22,7 +22,7 @@ Primary evidence:
 - auth, access-control, idempotency, storage, notification, and analytics services
 - Backend V1 frontend integration docs under `docs/v1`
 - current OpenAPI exporter `scripts/export-openapi.ts`
-- current root Apidog artifact under `docs/apidog/openapi.json`
+- workspace-root Apidog artifact under `docs/apidog/openapi.json`
 
 ## OpenAPI Revalidation
 
@@ -32,6 +32,12 @@ Current generator:
 - script: `apps/backend/scripts/export-openapi.ts`
 - app builder: `src/api/build-app.ts`
 - output: workspace-root `docs/apidog/openapi.json`
+
+The Backend Git repository does not commit `docs/apidog/openapi.json`; the
+exporter writes that artifact outside the Backend Git root under the shared
+workspace root. Therefore `HEAD:docs/apidog/openapi.json` is not a committed
+Backend blob. Treat the implementation-generated document as analysis output,
+not as Backend source history.
 
 Fresh export was generated with the same Bun script used by `openapi:emit`.
 The package-manager wrapper attempted network metadata access in this sandbox,
@@ -49,9 +55,17 @@ Fresh/current artifact counts:
 | `PATCH` | 17 |
 | `DELETE` | 7 |
 
-Checked-in status: the current root Apidog artifact already matches the fresh
-233-operation generation hash observed during MOB-006. Historical reports of a
-188-operation artifact are stale for the current workspace state.
+Artifact status:
+
+- committed Backend Git blob: none at `HEAD:docs/apidog/openapi.json`;
+- pre-generation workspace-root artifact during final review: 197 paths /
+  233 operations;
+- fresh generated implementation artifact: 197 paths / 233 operations.
+
+Historical reports of a 188-operation workspace artifact are consistent with
+another job observing the shared root artifact before it was regenerated. Since
+that file is outside the Backend Git repository, it is not a reliable committed
+source of truth.
 
 OpenAPI is useful for shapes, route inventory, tags, and many request/response
 schemas. It is not sufficient by itself for Mobile because it does not fully
@@ -96,7 +110,8 @@ Relevant areas:
   metadata, download URL, delete/restore.
 - Notifications/push: in-app notification list, mark read/read-all, preferences,
   push device register/revoke.
-- Dashboards/analytics: trainer, gym, relationship dashboards, relationship
+- Dashboards/analytics: trainer dashboard where the actor has the relevant
+  role/scope, relationship dashboard, and relationship
   training/progress/nutrition/adherence analytics.
 - Support context: `x-support-session-id` can affect auth/access behavior but is
   not a normal Mobile user flow.
@@ -263,12 +278,18 @@ MOB-019 owns product notification/push behavior. MOB-007 owns transport.
 Mobile-relevant Stage 18 routes:
 
 - trainer dashboard
-- gym dashboard where a role/scope allows it
 - relationship dashboard
 - relationship training analytics
 - relationship progress analytics
 - relationship nutrition analytics
 - relationship adherence analytics
+
+Backend reference only:
+
+- gym dashboard, because V1 Mobile roles are Trainee, Trainer, Assistant
+  Trainer, and Nutritionist. General gym-management dashboard surfaces belong to
+  Web/admin/management scope unless a future Mobile issue explicitly adds an
+  owner/manager mobile role.
 
 Semantics:
 

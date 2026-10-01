@@ -2,7 +2,6 @@ import type {
   ApiDateOnly,
   ApiPage,
   ApiTimestamp,
-  BranchId,
   Cursor,
   IanaTimezone,
   RelationshipId,
@@ -44,13 +43,10 @@ export interface ProgressAnalyticsQueryDto {
   cursor?: Cursor;
 }
 
-export interface DashboardCursorQueryDto {
+export interface TrainerDashboardQueryDto {
   attentionCategory?: AttentionCategory;
   attentionCursor?: Cursor;
   attentionLimit?: number;
-  branchId?: BranchId;
-  branchCursor?: Cursor;
-  branchLimit?: number;
   activityCategory?: ActivityCategory;
   activityCursor?: Cursor;
   activityLimit?: number;
