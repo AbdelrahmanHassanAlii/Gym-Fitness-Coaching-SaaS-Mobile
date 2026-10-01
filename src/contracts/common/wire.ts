@@ -37,6 +37,16 @@ export const permissionScopes = [
 ] as const;
 export type PermissionScope = (typeof permissionScopes)[number];
 
+export const workspaceMembershipRoles = [
+  'GYM_OWNER',
+  'GYM_MANAGER',
+  'TRAINER',
+  'ASSISTANT_TRAINER',
+  'NUTRITIONIST',
+  'TRAINEE',
+] as const;
+export type WorkspaceMembershipRole = (typeof workspaceMembershipRoles)[number];
+
 export interface ApiEnvelope<TData> {
   data: TData;
 }
@@ -74,6 +84,10 @@ export const isMobileActorRole = (value: unknown): value is MobileActorRole =>
 
 export const isPermissionScope = (value: unknown): value is PermissionScope =>
   typeof value === 'string' && permissionScopes.includes(value as PermissionScope);
+
+export const isWorkspaceMembershipRole = (value: unknown): value is WorkspaceMembershipRole =>
+  typeof value === 'string' &&
+  workspaceMembershipRoles.includes(value as WorkspaceMembershipRole);
 
 export const isApiDateOnly = (value: unknown): value is ApiDateOnly =>
   typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);

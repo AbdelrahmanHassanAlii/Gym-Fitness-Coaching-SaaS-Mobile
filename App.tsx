@@ -15,6 +15,8 @@ import {
 import { translate } from '@/i18n/messages';
 import { getStoredLocale, persistLocale } from '@/i18n/persistence';
 import { applyLocaleDirection } from '@/i18n/rtl';
+import { AccessProvider } from '@/permissions';
+import { AppInfrastructureProvider } from '@/providers';
 import {
   ThemeProvider,
   appearanceModes,
@@ -24,14 +26,15 @@ import {
   type ThemeId,
   type ThemeTokens,
 } from '@/theme';
-import { AppInfrastructureProvider } from '@/providers';
 
 export default function App() {
   return (
     <AppInfrastructureProvider>
       <ThemeProvider>
         <AuthProvider>
-          <FoundationPreview />
+          <AccessProvider>
+            <FoundationPreview />
+          </AccessProvider>
         </AuthProvider>
       </ThemeProvider>
     </AppInfrastructureProvider>

@@ -15,6 +15,9 @@ const en = {
   authSignedInFallback: 'Signed in',
   authMfaRequired: 'Multi-factor verification is required.',
   authSecurityFailure: 'Session storage needs attention. Sign in again when ready.',
+  accessDenied: 'You do not have access to this action.',
+  accessUnavailable: 'Access could not be verified.',
+  accessChecking: 'Checking access.',
 } as const;
 
 const ar: Record<keyof typeof en, string> = {
@@ -32,6 +35,9 @@ const ar: Record<keyof typeof en, string> = {
   authSignedInFallback: 'تم تسجيل الدخول',
   authMfaRequired: 'مطلوب التحقق متعدد العوامل.',
   authSecurityFailure: 'تحتاج بيانات الجلسة الآمنة إلى مراجعة. سجل الدخول مرة أخرى عندما تكون جاهزا.',
+  accessDenied: 'ليس لديك صلاحية لهذا الإجراء.',
+  accessUnavailable: 'تعذر التحقق من الصلاحية.',
+  accessChecking: 'جار التحقق من الصلاحية.',
 };
 
 export const MESSAGES: Record<SupportedLocale, Record<TranslationKey, string>> = {
