@@ -36,7 +36,7 @@ function normalizeBaseUrl(value: string): string {
     throw new Error('Backend base URL must use http or https.');
   }
 
-  parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+  parsed.pathname = parsed.pathname.replace(/\/api\/v1\/?$/i, '').replace(/\/+$/, '');
   parsed.search = '';
   parsed.hash = '';
 
@@ -51,5 +51,8 @@ function normalizeRelativePath(path: string): string {
     throw new Error('API path cannot be an absolute URL.');
   }
 
-  return `/${trimmed.replace(/^\/+/, '')}`;
+  const withoutLeadingSlashes = trimmed.replace(/^\/+/, '');
+  const withoutApiPrefix = withoutLeadingSlashes.replace(/^api\/v1(?:\/|$)/, '');
+
+  return `/${withoutApiPrefix}`;
 }

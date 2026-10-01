@@ -1,5 +1,5 @@
 import { publicClientConfig } from '@/config/publicConfig';
-import { hasNativeRefreshToken, isApiErrorBody, mobileAuthClientType } from '@/contracts';
+import { isApiErrorBody, mobileAuthClientType } from '@/contracts';
 import {
   ApiClientError,
   createBackendError,
@@ -55,6 +55,13 @@ export interface ApiClient {
   ): Promise<TResponse>;
 }
 
+const protectedHeaderNames = new Set([
+  'authorization',
+  'cookie',
+  'idempotency-key',
+  'x-support-session-id',
+]);
+
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const baseUrl = options.baseUrl ?? publicClientConfig.backendBaseUrl;
   if (!baseUrl) throw new Error('EXPO_PUBLIC_API_BASE_URL is required to create the API client.');
@@ -83,6 +90,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       if (!shouldRefresh(error, requestOptions)) throw error;
 
       const credentials = await refreshOnce();
+      if (requestOptions.signal?.aborted) throw createAbortedBeforeReplayError();
       return await send<TResponse, TQuery, TBody>({
         ...requestOptions,
         accessToken: credentials.accessToken,
@@ -113,7 +121,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   ): Promise<HeadersInit> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
-      ...requestOptions.headers,
+      ...safeCustomHeaders(requestOptions.headers),
     };
 
     if (requestOptions.body !== undefined && !hasHeader(headers, 'content-type')) {
@@ -186,8 +194,10 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       skipRefresh: true,
     });
 
-    if (!hasNativeRefreshToken(response.data)) {
-      throw createMalformedResponseError('Native refresh response did not include a refresh token.');
+    if (!hasNativeCredentials(response.data)) {
+      throw createMalformedResponseError(
+        'Native refresh response did not include valid access and refresh tokens.',
+      );
     }
 
     const credentials = {
@@ -258,4 +268,39 @@ function shouldRefresh<TQuery extends QueryParams | undefined, TBody>(
 
 function hasHeader(headers: Record<string, string>, headerName: string): boolean {
   return Object.keys(headers).some((key) => key.toLowerCase() === headerName.toLowerCase());
+}
+
+function hasNativeCredentials(
+  value: unknown,
+): value is { accessToken: string; refreshToken: string; restrictedUntilVerified: boolean } {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { accessToken?: unknown; refreshToken?: unknown };
+  return (
+    typeof candidate.accessToken === 'string' &&
+    candidate.accessToken.length > 0 &&
+    typeof candidate.refreshToken === 'string' &&
+    candidate.refreshToken.length > 0
+  );
+}
+
+function safeCustomHeaders(headers?: Record<string, string>): Record<string, string> {
+  if (!headers) return {};
+
+  for (const key of Object.keys(headers)) {
+    if (protectedHeaderNames.has(key.toLowerCase())) {
+      throw new ApiClientError({
+        kind: 'validation',
+        source: 'transport',
+        message: `Header "${key}" is controlled by the API transport.`,
+      });
+    }
+  }
+
+  return headers;
+}
+
+function createAbortedBeforeReplayError(): ApiClientError {
+  const error = new Error('Request was cancelled before replay.');
+  error.name = 'AbortError';
+  return createNetworkError(error);
 }

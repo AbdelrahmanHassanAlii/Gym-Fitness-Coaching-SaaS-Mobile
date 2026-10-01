@@ -15,6 +15,7 @@ The module owns:
 - `/api/v1` path prefixing;
 - query serialization;
 - JSON request/response handling;
+- protected transport header control;
 - backend and transport error normalization;
 - optional bearer/support/idempotency headers;
 - native refresh transport coordination;
@@ -33,7 +34,14 @@ configured Backend base + /api/v1 + relative path
 ```
 
 Absolute endpoint URLs and protocol-relative paths are rejected so ordinary
-calls cannot silently bypass the configured Backend origin.
+calls cannot silently bypass the configured Backend origin. If a caller
+accidentally includes `/api/v1` at the start of the relative path, the transport
+normalizes it so the final URL still has a single API prefix.
+
+Custom request headers are allowed for harmless request-specific metadata, but
+the transport controls `Authorization`, `Cookie`, `Idempotency-Key`, and
+`x-support-session-id` case-insensitively. Callers must use the dedicated
+request options for bearer tokens, idempotency, and support session context.
 
 ## Auth Seam
 
@@ -66,8 +74,17 @@ Because Backend refresh tokens rotate, the client uses single-flight refresh per
 client instance. Concurrent 401s wait for the same refresh request, so they do
 not submit the same rotating refresh token multiple times.
 
+The refresh flight's returned credentials directly supply the access token for
+all participating replays; replay does not depend on rereading auth state after a
+future persistence callback. `onCredentialsRefreshed` runs once per refresh
+flight. If that callback rejects, the refresh is treated as failed, waiting
+requests do not replay with stale credentials, `onSessionExpired` is notified,
+and the flight is cleared for a later session attempt.
+
 Refresh requests never recursively refresh. Each original request may replay at
-most once after a successful refresh.
+most once after a successful refresh. If a caller aborts while waiting for a
+shared refresh, that request fails as aborted and does not cancel the shared
+refresh for other waiters.
 
 ## Idempotency And Retry Safety
 
@@ -85,21 +102,26 @@ increment, replace, refetch, or retry CAS values.
 
 ## Query And Dates
 
-Query serialization preserves opaque strings, booleans, numbers, repeated array
-values, date-only strings, and offset timestamps as supplied. The transport does
-not parse cursors, convert date-only strings, assume UTC, or add/subtract local
-days. MOB-008 owns date/time utilities.
+Query serialization skips `undefined` and `null`, preserves `false`, `0`, empty
+strings, opaque strings, booleans, numbers, repeated array values, date-only
+strings, offset timestamps, and safely URL-encodes Unicode/reserved characters.
+The transport does not parse cursors, convert date-only strings, assume UTC, or
+add/subtract local days. MOB-008 owns date/time utilities.
 
 ## Response Handling
 
 The client handles:
 
-- JSON request bodies;
+- JSON request bodies, including `null`, booleans, numbers, strings, and
+  objects when explicitly supplied;
 - JSON responses;
 - `204` or empty success responses;
 - malformed JSON;
 - non-JSON proxy/server errors;
 - backend error envelopes.
+
+An `undefined` body is omitted. MOB-007 does not implement binary or raw upload
+body handling.
 
 ## Errors
 
