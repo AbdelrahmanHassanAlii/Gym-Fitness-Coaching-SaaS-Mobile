@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AuthPanel, AuthProvider } from '@/auth';
 import { publicClientConfig } from '@/config/publicConfig';
 import { getDeviceLocaleTags } from '@/i18n/device';
 import {
@@ -29,7 +30,9 @@ export default function App() {
   return (
     <AppInfrastructureProvider>
       <ThemeProvider>
-        <FoundationPreview />
+        <AuthProvider>
+          <FoundationPreview />
+        </AuthProvider>
       </ThemeProvider>
     </AppInfrastructureProvider>
   );
@@ -152,6 +155,8 @@ function FoundationPreview() {
           <Text style={styles.disabledButtonText}>Disabled state</Text>
         </Pressable>
       </View>
+
+      <AuthPanel direction={direction} t={t} />
 
       {requiresRestart ? (
         <Text style={styles.directionNotice}>{t('directionNotice')}</Text>

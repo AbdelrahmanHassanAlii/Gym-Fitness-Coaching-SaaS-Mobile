@@ -37,6 +37,12 @@ export interface RefreshRequestDto {
   refreshToken: string;
 }
 
+export interface MfaLoginVerifyRequestDto {
+  mfaChallengeToken: string;
+  factorType: MfaFactorType;
+  credential: string;
+}
+
 export interface AuthTokenDataDto {
   accessToken: string;
   refreshToken?: string;
