@@ -1,7 +1,19 @@
 import { StatusBar } from 'expo-status-bar';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { publicClientConfig } from '@/config/publicConfig';
+import { getDeviceLocaleTags } from '@/i18n/device';
+import {
+  SUPPORTED_LOCALES,
+  getLocaleDirection,
+  resolveLocale,
+  type SupportedLocale,
+  type TextDirection,
+} from '@/i18n/locales';
+import { translate } from '@/i18n/messages';
+import { getStoredLocale, persistLocale } from '@/i18n/persistence';
+import { applyLocaleDirection } from '@/i18n/rtl';
 import {
   ThemeProvider,
   appearanceModes,
@@ -21,6 +33,12 @@ export default function App() {
 }
 
 function FoundationPreview() {
+  const [locale, setLocale] = useState<SupportedLocale>(() =>
+    resolveLocale({ deviceLocales: getDeviceLocaleTags() }),
+  );
+  const [requiresRestart, setRequiresRestart] = useState(
+    () => applyLocaleDirection(locale).requiresRestart,
+  );
   const {
     theme,
     themeId,
@@ -29,21 +47,70 @@ function FoundationPreview() {
     setThemeId,
     setAppearanceMode,
   } = useTheme();
-  const styles = createStyles(theme);
+  const direction = getLocaleDirection(locale);
+  const t = useMemo(
+    () => (key: Parameters<typeof translate>[1]) => translate(locale, key),
+    [locale],
+  );
+  const styles = createStyles(theme, direction);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadLocalePreference() {
+      const storedLocale = await getStoredLocale();
+      const resolvedLocale = resolveLocale({
+        storedLocale,
+        deviceLocales: getDeviceLocaleTags(),
+      });
+      const directionState = applyLocaleDirection(resolvedLocale);
+
+      if (isMounted) {
+        setLocale(resolvedLocale);
+        setRequiresRestart(directionState.requiresRestart);
+      }
+    }
+
+    void loadLocalePreference();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  async function selectLocale(nextLocale: SupportedLocale) {
+    const directionState = applyLocaleDirection(nextLocale);
+
+    setLocale(nextLocale);
+    setRequiresRestart(directionState.requiresRestart);
+    await persistLocale(nextLocale);
+  }
 
   return (
     <View style={styles.container}>
       <Text accessibilityRole="header" style={styles.title}>
-        Hassan Gym & Fitness Coaching
+        {t('appTitle')}
       </Text>
       <Text style={styles.subtitle}>
-        Mobile app foundation - {resolvedAppearance}
+        {t('appSubtitle')} - {resolvedAppearance}
       </Text>
       <Text style={styles.environment}>
         Environment: {publicClientConfig.appEnvironment}
       </Text>
 
       <View style={styles.panel}>
+        <Text style={styles.label}>{t('languageLabel')}</Text>
+        <View style={styles.controlRow}>
+          {(['en', 'ar'] as const).map((option) => (
+            <TokenButton
+              key={option}
+              label={SUPPORTED_LOCALES[option].nativeLabel}
+              selected={locale === option}
+              onPress={() => void selectLocale(option)}
+            />
+          ))}
+        </View>
+
         <Text style={styles.label}>Appearance</Text>
         <View style={styles.controlRow}>
           {appearanceModes.map((mode) => (
@@ -83,6 +150,10 @@ function FoundationPreview() {
         </Pressable>
       </View>
 
+      {requiresRestart ? (
+        <Text style={styles.directionNotice}>{t('directionNotice')}</Text>
+      ) : null}
+
       <StatusBar style={resolvedAppearance === 'dark' ? 'light' : 'dark'} />
     </View>
   );
@@ -96,7 +167,7 @@ type TokenButtonProps = {
 
 function TokenButton({ label, selected, onPress }: TokenButtonProps) {
   const { theme } = useTheme();
-  const styles = createStyles(theme);
+  const styles = createStyles(theme, 'ltr');
 
   return (
     <Pressable
@@ -123,7 +194,7 @@ type SemanticStateProps = {
 
 function SemanticState({ label, color }: SemanticStateProps) {
   const { theme } = useTheme();
-  const styles = createStyles(theme);
+  const styles = createStyles(theme, 'ltr');
 
   return (
     <View style={styles.stateItem}>
@@ -133,7 +204,7 @@ function SemanticState({ label, color }: SemanticStateProps) {
   );
 }
 
-function createStyles(theme: ThemeTokens) {
+function createStyles(theme: ThemeTokens, direction: TextDirection) {
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -141,24 +212,31 @@ function createStyles(theme: ThemeTokens) {
       justifyContent: 'center',
       paddingHorizontal: theme.spacing.lg,
       backgroundColor: theme.colors.background,
+      direction,
     },
     title: {
+      alignSelf: 'stretch',
       color: theme.colors.foreground,
       fontSize: theme.typography.title,
       fontWeight: '700',
       textAlign: 'center',
+      writingDirection: direction,
     },
     subtitle: {
+      alignSelf: 'stretch',
       marginTop: theme.spacing.sm,
       color: theme.colors.mutedForeground,
       fontSize: theme.typography.body,
       textAlign: 'center',
+      writingDirection: direction,
     },
     environment: {
+      alignSelf: 'stretch',
       marginTop: theme.spacing.sm,
       color: theme.colors.mutedForeground,
       fontSize: theme.typography.caption,
       textAlign: 'center',
+      writingDirection: 'ltr',
     },
     panel: {
       width: '100%',
@@ -175,10 +253,12 @@ function createStyles(theme: ThemeTokens) {
       color: theme.colors.foreground,
       fontSize: theme.typography.caption,
       fontWeight: '700',
+      textAlign: direction === 'rtl' ? 'right' : 'left',
       textTransform: 'uppercase',
+      writingDirection: direction,
     },
     controlRow: {
-      flexDirection: 'row',
+      flexDirection: direction === 'rtl' ? 'row-reverse' : 'row',
       flexWrap: 'wrap',
       gap: theme.spacing.sm,
     },
@@ -210,14 +290,14 @@ function createStyles(theme: ThemeTokens) {
       fontWeight: '700',
     },
     stateRow: {
-      flexDirection: 'row',
+      flexDirection: direction === 'rtl' ? 'row-reverse' : 'row',
       flexWrap: 'wrap',
       gap: theme.spacing.sm,
     },
     stateItem: {
       minHeight: 36,
       alignItems: 'center',
-      flexDirection: 'row',
+      flexDirection: direction === 'rtl' ? 'row-reverse' : 'row',
       gap: theme.spacing.sm,
       paddingHorizontal: theme.spacing.sm,
     },
@@ -242,6 +322,14 @@ function createStyles(theme: ThemeTokens) {
       color: theme.colors.disabledForeground,
       fontSize: theme.typography.body,
       fontWeight: '700',
+    },
+    directionNotice: {
+      alignSelf: 'stretch',
+      color: theme.colors.warning,
+      fontSize: theme.typography.caption,
+      marginTop: theme.spacing.md,
+      textAlign: 'center',
+      writingDirection: direction,
     },
   });
 }
