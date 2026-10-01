@@ -49,6 +49,26 @@ function deny(permission = 'workouts.read'): EffectivePermissionDecisionDto {
   };
 }
 
+function scopedAllow(
+  permission = 'workouts.read',
+  scope: EffectivePermissionDecisionDto['scope'],
+): EffectivePermissionDecisionDto {
+  return {
+    ...allow(permission),
+    scope,
+  };
+}
+
+function scopedDeny(
+  permission = 'workouts.read',
+  scope: EffectivePermissionDecisionDto['scope'],
+): EffectivePermissionDecisionDto {
+  return {
+    ...deny(permission),
+    scope,
+  };
+}
+
 function facts(input: Partial<PermissionAccessFacts> = {}): PermissionAccessFacts {
   return {
     generation: 1,
@@ -113,6 +133,8 @@ describe('permission access model', () => {
 
   it('does not use role context as permission or a role-to-permission map', () => {
     const roleOnlyFacts = facts({ decisions: [], roles: ['TRAINER'] });
+    const trainerFacts = facts({ roles: ['TRAINER'] });
+    const nutritionistFacts = facts({ roles: ['NUTRITIONIST'] });
 
     expect(roleContextHasRole(roleOnlyFacts.roles, 'TRAINER')).toBe(true);
     expect(
@@ -122,6 +144,19 @@ describe('permission access model', () => {
         facts: roleOnlyFacts,
       }),
     ).toMatchObject({ state: 'denied', reason: 'no-verified-allow' });
+    expect(
+      resolveAccessDecision({
+        permission: 'workouts.read',
+        currentGeneration: 1,
+        facts: trainerFacts,
+      }),
+    ).toEqual(
+      resolveAccessDecision({
+        permission: 'workouts.read',
+        currentGeneration: 1,
+        facts: nutritionistFacts,
+      }),
+    );
   });
 
   it('does not infer branch or relationship access from workspace permission or role', () => {
@@ -139,6 +174,14 @@ describe('permission access model', () => {
         currentGeneration: 1,
         relationshipId: relationshipA,
         facts: facts({ roles: ['TRAINER'] }),
+      }),
+    ).toMatchObject({ state: 'unavailable', reason: 'relationship-context-unverified' });
+    expect(
+      resolveAccessDecision({
+        permission: 'workouts.read',
+        currentGeneration: 1,
+        relationshipId: relationshipA,
+        facts: facts({ relationshipAccess: { assignedTrainees: true } }),
       }),
     ).toMatchObject({ state: 'unavailable', reason: 'relationship-context-unverified' });
   });
@@ -168,6 +211,87 @@ describe('permission access model', () => {
         facts: facts({ relationshipAccess: { includeRelationshipIds: [relationshipA] } }),
       }),
     ).toMatchObject({ state: 'denied' });
+  });
+
+  it('keeps scoped deny decisions contextual instead of leaking across branches or relationships', () => {
+    expect(
+      resolveAccessDecision({
+        permission: 'workouts.read',
+        currentGeneration: 1,
+        branchId: branchA,
+        facts: facts({
+          branchAccess: { includeBranchIds: [branchA, branchB] },
+          decisions: [
+            allow(),
+            scopedDeny('workouts.read', { type: 'BRANCH', resourceIds: [branchA] }),
+          ],
+        }),
+      }),
+    ).toMatchObject({ state: 'denied', reason: 'explicit-deny' });
+    expect(
+      resolveAccessDecision({
+        permission: 'workouts.read',
+        currentGeneration: 1,
+        branchId: branchB,
+        facts: facts({
+          branchAccess: { includeBranchIds: [branchA, branchB] },
+          decisions: [
+            allow(),
+            scopedDeny('workouts.read', { type: 'BRANCH', resourceIds: [branchA] }),
+          ],
+        }),
+      }),
+    ).toMatchObject({ state: 'allowed' });
+    expect(
+      resolveAccessDecision({
+        permission: 'workouts.read',
+        currentGeneration: 1,
+        relationshipId: relationshipB,
+        facts: facts({
+          relationshipAccess: { includeRelationshipIds: [relationshipA, relationshipB] },
+          decisions: [
+            allow(),
+            scopedDeny('workouts.read', {
+              type: 'SPECIFIC_TRAINEES',
+              resourceIds: [relationshipA],
+            }),
+          ],
+        }),
+      }),
+    ).toMatchObject({ state: 'allowed' });
+    expect(
+      resolveAccessDecision({
+        permission: 'workouts.update',
+        currentGeneration: 1,
+        facts: facts({ decisions: [allow('workouts.update'), deny('workouts.read')] }),
+      }),
+    ).toMatchObject({ state: 'allowed' });
+  });
+
+  it('fails closed on contradictory or malformed effective access facts', () => {
+    expect(
+      resolveAccessDecision({
+        permission: 'workouts.read',
+        currentGeneration: 1,
+        facts: facts({
+          decisions: [{ ...allow(), allowed: false }],
+        }),
+      }),
+    ).toMatchObject({ state: 'unavailable', reason: 'malformed-access-fact' });
+    expect(
+      resolveAccessDecision({
+        permission: 'workouts.read',
+        currentGeneration: 1,
+        branchId: branchA,
+        facts: facts({
+          branchAccess: { includeBranchIds: [branchA] },
+          decisions: [
+            scopedAllow('workouts.read', { type: 'BRANCH', resourceIds: [branchA] }),
+            scopedDeny('workouts.read', { type: 'BRANCH', resourceIds: [branchA] }),
+          ],
+        }),
+      }),
+    ).toMatchObject({ state: 'denied', reason: 'explicit-deny' });
   });
 
   it('prevents session/account/workspace race leakage through generation binding', () => {
@@ -215,6 +339,15 @@ describe('permission access model', () => {
       reason: 'relationship-denied',
     });
     expect(shouldRetryQuery(0, forbidden)).toBe(false);
+
+    const unauthenticated = new ApiClientError({
+      kind: 'authentication',
+      source: 'backend',
+      message: 'Unauthenticated',
+      status: 401,
+      code: 'AUTH_REQUIRED',
+    });
+    expect(accessDecisionFromApiError(unauthenticated)).toBeNull();
   });
 
   it('keeps Platform Admin and restricted account facts from inventing Mobile policy', () => {
@@ -282,5 +415,30 @@ describe('permission UX components', () => {
     expect(screen.queryByText('Hidden action')).toBeNull();
     fireEvent.press(screen.getByRole('button', { name: 'Open' }));
     expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes protected children immediately when access becomes unresolved', async () => {
+    const allowed = { state: 'allowed', reason: 'allowed' } as const;
+    const unresolved = { state: 'unresolved', reason: 'stale-generation' } as const;
+    const screen = await render(
+      <ThemeProvider>
+        <AccessBoundary decision={allowed} mode="fallback">
+          <Text>Protected action</Text>
+        </AccessBoundary>
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText('Protected action')).toBeTruthy();
+
+    await screen.rerender(
+      <ThemeProvider>
+        <AccessBoundary decision={unresolved} mode="fallback">
+          <Text>Protected action</Text>
+        </AccessBoundary>
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByText('Protected action')).toBeNull();
+    expect(screen.getByRole('alert', { name: 'Checking access.' })).toBeTruthy();
   });
 });

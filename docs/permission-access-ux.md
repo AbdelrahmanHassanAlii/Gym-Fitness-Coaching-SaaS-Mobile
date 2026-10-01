@@ -25,6 +25,12 @@ Mobile models only a verified subset of permission identifiers that are relevant
 to V1 Mobile roles. Unknown identifiers fail closed instead of becoming local
 feature flags.
 
+MOB-010 does not fetch live permission data yet. `AccessProvider` holds
+already-verified access facts supplied by future feature/query layers and binds
+them to the current auth generation for presentation. MOB-007 owns transport,
+MOB-008 owns query primitives, and future product work owns endpoint-specific
+loading.
+
 ## Role Versus Permission
 
 Roles are identity and future navigation context. They are not authorization.
@@ -59,9 +65,14 @@ resolve to `unresolved`, not `allowed`.
 Workspace, branch, and relationship context is explicit:
 
 - Workspace A facts do not satisfy Workspace B.
-- Branch access is not inferred from workspace permission.
-- Relationship access is not inferred from trainer, assistant trainer, or
-  nutritionist role.
+- Branch access is not inferred from workspace permission unless verified
+  Backend facts explicitly identify that branch/context as available.
+- Relationship access is not inferred from trainer, assistant trainer,
+  nutritionist role, or broad assigned-trainee/self flags for a specific
+  relationship. A relationship-specific action needs explicit relationship
+  access facts.
+- Scoped `DENY` facts only deny the context they apply to. A Branch A deny does
+  not deny Branch B, and a Relationship A deny does not deny Relationship B.
 - Opaque relationship IDs remain coaching relationship IDs.
 
 MOB-010 uses MOB-008/MOB-009 protected query conventions. Query keys must never

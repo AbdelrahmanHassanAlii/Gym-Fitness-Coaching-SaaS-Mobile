@@ -6,6 +6,7 @@ import {
 } from '@/contracts';
 import type {
   BranchId,
+  PermissionScope,
   RelationshipId,
   WorkspaceId,
   WorkspaceMembershipId,
@@ -93,9 +94,19 @@ export function resolveAccessDecision({
     return { state: 'unresolved', permission, reason: 'missing-context' };
   }
 
-  const matching = (facts.decisions ?? []).filter((decision) => decision.permission === permission);
-  if (matching.some(isMalformedDecision)) {
+  const matchingPermission = (facts.decisions ?? []).filter(
+    (decision) => decision.permission === permission,
+  );
+  if (matchingPermission.some(isMalformedDecision)) {
     return { state: 'unavailable', permission, reason: 'malformed-access-fact' };
+  }
+
+  const matching = selectMostSpecificApplicableDecisions(matchingPermission, {
+    branchId,
+    relationshipId,
+  });
+  if (matching.length === 0) {
+    return { state: 'denied', permission, reason: 'no-verified-allow' };
   }
   if (matching.some((decision) => decision.effect === 'DENY' || decision.explicitDeny)) {
     return { state: 'denied', permission, reason: 'explicit-deny' };
@@ -153,8 +164,78 @@ function isMalformedDecision(decision: EffectivePermissionDecisionDto): boolean 
   return (
     !isVerifiedMobilePermissionKey(decision.permission) ||
     (decision.effect !== 'ALLOW' && decision.effect !== 'DENY') ||
-    typeof decision.allowed !== 'boolean'
+    typeof decision.allowed !== 'boolean' ||
+    isContradictoryDecision(decision) ||
+    isMalformedScope(decision.scope)
   );
+}
+
+function isContradictoryDecision(decision: EffectivePermissionDecisionDto): boolean {
+  return (
+    (decision.effect === 'ALLOW' && decision.allowed !== true) ||
+    (decision.effect === 'DENY' && decision.allowed !== false)
+  );
+}
+
+function isMalformedScope(scope: EffectivePermissionDecisionDto['scope']): boolean {
+  if (!scope) return false;
+  if (!isPermissionScopeType(scope.type)) return true;
+  if (!scope.resourceIds) {
+    return ['BRANCH', 'MULTIPLE_BRANCHES', 'SPECIFIC_TRAINEES'].includes(scope.type);
+  }
+  return !Array.isArray(scope.resourceIds) || scope.resourceIds.some((id) => typeof id !== 'string');
+}
+
+function isPermissionScopeType(value: unknown): value is PermissionScope {
+  return (
+    value === 'SELF' ||
+    value === 'ASSIGNED_TRAINEES' ||
+    value === 'SPECIFIC_TRAINEES' ||
+    value === 'BRANCH' ||
+    value === 'MULTIPLE_BRANCHES' ||
+    value === 'WORKSPACE'
+  );
+}
+
+function selectMostSpecificApplicableDecisions(
+  decisions: EffectivePermissionDecisionDto[],
+  context: Pick<AccessRequest, 'branchId' | 'relationshipId'>,
+): EffectivePermissionDecisionDto[] {
+  const applicable = decisions.filter((decision) => decisionAppliesToContext(decision, context));
+  const highestSpecificity = Math.max(
+    ...applicable.map((decision) => scopeSpecificity(decision.scope?.type)),
+    -1,
+  );
+  return applicable.filter(
+    (decision) => scopeSpecificity(decision.scope?.type) === highestSpecificity,
+  );
+}
+
+function decisionAppliesToContext(
+  decision: EffectivePermissionDecisionDto,
+  { branchId, relationshipId }: Pick<AccessRequest, 'branchId' | 'relationshipId'>,
+): boolean {
+  const scope = decision.scope;
+  if (!scope || scope.type === 'WORKSPACE') return true;
+
+  if (scope.type === 'BRANCH' || scope.type === 'MULTIPLE_BRANCHES') {
+    return Boolean(branchId && scope.resourceIds?.includes(branchId));
+  }
+  if (scope.type === 'SPECIFIC_TRAINEES') {
+    return Boolean(relationshipId && scope.resourceIds?.includes(relationshipId));
+  }
+
+  // SELF and ASSIGNED_TRAINEES are Backend scope facts, but Mobile cannot prove a
+  // specific relationship belongs to either set without explicit resolved access.
+  return !branchId && !relationshipId;
+}
+
+function scopeSpecificity(scope: PermissionScope | undefined): number {
+  if (scope === 'BRANCH' || scope === 'MULTIPLE_BRANCHES' || scope === 'SPECIFIC_TRAINEES') {
+    return 2;
+  }
+  if (scope === 'SELF' || scope === 'ASSIGNED_TRAINEES') return 1;
+  return 0;
 }
 
 function evaluateBranchContext(
@@ -190,7 +271,6 @@ function evaluateRelationshipContext(
       ? null
       : { state: 'denied', reason: 'explicit-deny' };
   }
-  if (access.assignedTrainees || access.self) return null;
   return { state: 'unavailable', reason: 'relationship-context-unverified' };
 }
 
