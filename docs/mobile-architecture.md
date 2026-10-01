@@ -30,7 +30,7 @@ Use `src/` for application code. Add folders when real code arrives; do not crea
 | Configuration | `src/config/` | Public client config and build profile seams. No credentials. |
 | Hooks | Feature-owned first; `src/hooks/` only for cross-cutting hooks | Avoid a global dumping ground. |
 | Utilities | Feature-owned first; `src/utils/` only for stable cross-cutting helpers | Keep utility interfaces narrow and well named. |
-| Types and contracts | Feature-owned first; future generated/shared contracts under `src/contracts/` | MOB-006 owns contract strategy. |
+| Types and contracts | Feature-owned first; verified mobile wire DTOs under `src/contracts/` | MOB-006 owns contract strategy. |
 | Assets | `assets/` for Expo metadata assets; future runtime assets may move under `src/assets/` when imported by modules | Keep platform metadata assets stable for Expo config. |
 
 ## Navigation Boundary
@@ -60,3 +60,9 @@ Avoid adding aliases for each folder. Relative imports are still fine for nearby
 ## Module Design
 
 Prefer deep modules: keep interfaces small and put complexity behind clear seams. Do not add a seam just because one adapter exists. A future API client, secure storage adapter, or permissions evaluator earns a seam when callers would otherwise duplicate environment, platform, or policy knowledge.
+
+## Contract Boundary
+
+MOB-006 establishes `src/contracts/` as the Mobile-owned Backend wire DTO seam. See `docs/backend-contracts-and-dto-strategy.md` for the verified backend evidence, confidence labels, DTO conventions, and MOB-007/MOB-008 boundaries.
+
+Contracts must not import Backend or Web source. Keep wire DTOs distinct from future UI/view models, and preserve semantic identifiers such as `RelationshipId` so coaching relationship ids are not mixed with trainee user ids, membership ids, or assignment ids.
