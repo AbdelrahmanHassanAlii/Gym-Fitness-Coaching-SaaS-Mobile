@@ -303,8 +303,10 @@ describe('MOB-012 Trainee Home rendering and navigation integration', () => {
     );
     expect(screen.getByText('Trainee home')).toBeTruthy();
 
+    const replacementClient = createAppQueryClient();
+    testQueryClients.add(replacementClient);
     await screen.rerender(
-      <QueryClientProvider client={createAppQueryClient()}>
+      <QueryClientProvider client={replacementClient}>
         <ThemeProvider>
           <NavigationSurface
             authState={authenticated(2)}

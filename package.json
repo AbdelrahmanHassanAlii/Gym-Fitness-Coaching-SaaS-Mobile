@@ -40,7 +40,7 @@
     "deps:check": "node ./node_modules/expo/bin/cli install --check",
     "export:ci": "node ./node_modules/expo/bin/cli export --platform android --output-dir dist",
     "smoke": "node ./node_modules/expo/bin/cli config --type public",
-    "test": "node ./node_modules/jest/bin/jest.js --runInBand",
+    "test": "node ./node_modules/jest/bin/jest.js --runInBand --forceExit",
     "test:watch": "node ./node_modules/jest/bin/jest.js --watch"
   },
   "private": true
