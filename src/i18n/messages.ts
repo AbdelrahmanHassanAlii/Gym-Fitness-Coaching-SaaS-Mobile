@@ -18,6 +18,21 @@ const en = {
   accessDenied: 'You do not have access to this action.',
   accessUnavailable: 'Access could not be verified.',
   accessChecking: 'Checking access.',
+  navigationAuthFlow: 'Authentication',
+  navigationInitializing: 'Preparing session',
+  navigationContextUnavailable: 'Workspace access context is not available.',
+  navigationUnsupportedPersona: 'This workspace role is not available in Mobile V1.',
+  navigationAmbiguousPersona: 'Choose a Mobile persona for this workspace.',
+  navigationTrainee: 'Trainee',
+  navigationTrainer: 'Trainer',
+  navigationAssistantTrainer: 'Assistant Trainer',
+  navigationNutritionist: 'Nutritionist',
+  navigationHome: 'Home',
+  navigationTraining: 'Training',
+  navigationNutrition: 'Nutrition',
+  navigationProgress: 'Progress',
+  navigationRelationships: 'Relationships',
+  navigationRouteUnavailable: 'This destination is not available.',
 } as const;
 
 const ar: Record<keyof typeof en, string> = {
@@ -38,6 +53,21 @@ const ar: Record<keyof typeof en, string> = {
   accessDenied: 'ليس لديك صلاحية لهذا الإجراء.',
   accessUnavailable: 'تعذر التحقق من الصلاحية.',
   accessChecking: 'جار التحقق من الصلاحية.',
+  navigationAuthFlow: 'المصادقة',
+  navigationInitializing: 'جار تجهيز الجلسة',
+  navigationContextUnavailable: 'سياق الوصول إلى مساحة العمل غير متاح.',
+  navigationUnsupportedPersona: 'هذا الدور غير متاح في تطبيق الهاتف V1.',
+  navigationAmbiguousPersona: 'اختر تجربة الهاتف لهذه المساحة.',
+  navigationTrainee: 'متدرب',
+  navigationTrainer: 'مدرب',
+  navigationAssistantTrainer: 'مدرب مساعد',
+  navigationNutritionist: 'أخصائي تغذية',
+  navigationHome: 'الرئيسية',
+  navigationTraining: 'التدريب',
+  navigationNutrition: 'التغذية',
+  navigationProgress: 'التقدم',
+  navigationRelationships: 'العلاقات',
+  navigationRouteUnavailable: 'هذه الوجهة غير متاحة.',
 };
 
 export const MESSAGES: Record<SupportedLocale, Record<TranslationKey, string>> = {

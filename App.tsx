@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AuthPanel, AuthProvider } from '@/auth';
+import { AuthProvider } from '@/auth';
 import { publicClientConfig } from '@/config/publicConfig';
 import { getDeviceLocaleTags } from '@/i18n/device';
 import {
@@ -17,6 +17,7 @@ import { getStoredLocale, persistLocale } from '@/i18n/persistence';
 import { applyLocaleDirection } from '@/i18n/rtl';
 import { AccessProvider } from '@/permissions';
 import { AppInfrastructureProvider } from '@/providers';
+import { RoleAwareNavigator } from '@/navigation';
 import {
   ThemeProvider,
   appearanceModes,
@@ -159,7 +160,7 @@ function FoundationPreview() {
         </Pressable>
       </View>
 
-      <AuthPanel direction={direction} t={t} />
+      <RoleAwareNavigator direction={direction} locale={locale} t={t} />
 
       {requiresRestart ? (
         <Text style={styles.directionNotice}>{t('directionNotice')}</Text>
