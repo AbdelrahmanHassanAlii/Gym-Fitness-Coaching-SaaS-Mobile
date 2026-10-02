@@ -30,23 +30,55 @@ export function TraineeExperienceNavigator({
   relationshipId,
   t,
 }: TraineeExperienceNavigatorProps) {
+  const { state } = useAuthSession();
+
+  if (state.status !== 'authenticated' || !state.session) {
+    return (
+      <RoleAwareNavigator
+        direction={direction}
+        locale={locale}
+        renderRoute={() => null}
+        routes={traineeRoutes}
+        t={t}
+        workspaceContext={null}
+      />
+    );
+  }
+
+  return (
+    <AuthenticatedTraineeExperienceNavigator
+      direction={direction}
+      generation={state.session.generation}
+      locale={locale}
+      relationshipId={relationshipId}
+      t={t}
+    />
+  );
+}
+
+interface AuthenticatedTraineeExperienceNavigatorProps extends TraineeExperienceNavigatorProps {
+  generation: number;
+}
+
+function AuthenticatedTraineeExperienceNavigator({
+  direction,
+  generation,
+  locale,
+  relationshipId,
+  t,
+}: AuthenticatedTraineeExperienceNavigatorProps) {
   const { controller, state } = useAuthSession();
-  const generation =
-    state.status === 'authenticated' ? state.session?.generation ?? null : null;
   const apiClient = useMemo(
-    () => (generation === null ? null : createApiClient({ auth: controller.authSeam })),
-    [controller, generation],
+    () => createApiClient({ auth: controller.authSeam }),
+    [controller],
   );
   const workspaceQuery = useQuery({
-    enabled: generation !== null && apiClient !== null,
-    queryKey:
-      generation === null
-        ? [protectedQueryScope, 'no-session', 'trainee', 'workspace-context']
-        : [protectedQueryScope, generation, 'trainee', 'workspace-context'],
-    queryFn: ({ signal }) => fetchMyWorkspaceContexts({ apiClient: apiClient as NonNullable<typeof apiClient>, signal }),
+    enabled: state.status === 'authenticated' && state.session?.generation === generation,
+    queryKey: [protectedQueryScope, generation, 'trainee', 'workspace-context'],
+    queryFn: ({ signal }) => fetchMyWorkspaceContexts({ apiClient, signal }),
   });
   const traineeContext: TraineeContextResolution | null = useMemo(() => {
-    if (generation === null || !workspaceQuery.data) return null;
+    if (!workspaceQuery.data) return null;
     return resolveTraineeWorkspaceContext({ generation, rows: workspaceQuery.data });
   }, [generation, workspaceQuery.data]);
   const readyContext = traineeContext?.status === 'ready' ? traineeContext : null;
@@ -56,7 +88,7 @@ export function TraineeExperienceNavigator({
       direction={direction}
       locale={locale}
       renderRoute={({ route }) =>
-        route.id === 'trainee.home' && readyContext && apiClient ? (
+        route.id === 'trainee.home' && readyContext ? (
           <TraineeHomeScreen
             apiClient={apiClient}
             context={readyContext}

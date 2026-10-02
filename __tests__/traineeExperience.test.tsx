@@ -17,6 +17,7 @@ import { ThemeProvider } from '@/theme';
 import {
   fetchMyWorkspaceContexts,
   fetchTraineeRelationshipDashboard,
+  parseMyWorkspaceContexts,
   parseRelationshipDashboard,
   resolveTraineeWorkspaceContext,
   TraineeHomeScreen,
@@ -162,6 +163,31 @@ describe('MOB-012 trainee context selection', () => {
         ],
       }),
     ).toMatchObject({ status: 'unresolved', reason: 'multiple-trainee-workspaces' });
+  });
+
+  it('rejects malformed live workspace context before it can reach Trainee navigation', () => {
+    expect(
+      parseMyWorkspaceContexts({
+        data: [
+          workspaceRow({
+            membership: { ...workspaceRow().membership, roles: ['TRAINEE', 'UNKNOWN_ROLE' as never] },
+          }),
+        ],
+      }),
+    ).toBeNull();
+
+    expect(
+      parseMyWorkspaceContexts({
+        data: [
+          workspaceRow({
+            membership: {
+              ...workspaceRow().membership,
+              engagementPeriods: [{ startedAt: 'not-a-timestamp' as never }],
+            },
+          }),
+        ],
+      }),
+    ).toBeNull();
   });
 });
 

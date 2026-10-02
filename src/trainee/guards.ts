@@ -1,11 +1,9 @@
 import {
   hasExplicitTimezoneOffset,
   isWorkspaceMembershipRole,
-  type ApiTimestamp,
   type MyWorkspaceContextDto,
   type RelationshipId,
   type WorkspaceId,
-  type WorkspaceMembershipId,
 } from '@/contracts';
 import { isCoachingRelationshipStatus } from '@/contracts';
 
@@ -148,6 +146,20 @@ function parseMyWorkspaceContext(value: unknown): MyWorkspaceContextDto | null {
   if (typeof membershipDto.accessVersion !== 'number') return null;
   if (!hasExplicitTimezoneOffset(membershipDto.joinedAt)) return null;
   if (!Array.isArray(membershipDto.engagementPeriods)) return null;
+  if (
+    membershipDto.engagementPeriods.some((period) => {
+      if (!period || typeof period !== 'object') return true;
+      const candidate = period as { startedAt?: unknown; endedAt?: unknown };
+      return (
+        !hasExplicitTimezoneOffset(candidate.startedAt) ||
+        (candidate.endedAt !== undefined &&
+          candidate.endedAt !== null &&
+          !hasExplicitTimezoneOffset(candidate.endedAt))
+      );
+    })
+  ) {
+    return null;
+  }
 
   return value as MyWorkspaceContextDto;
 }
@@ -155,5 +167,3 @@ function parseMyWorkspaceContext(value: unknown): MyWorkspaceContextDto | null {
 function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
-
-void (undefined as ApiTimestamp | WorkspaceMembershipId | undefined);
