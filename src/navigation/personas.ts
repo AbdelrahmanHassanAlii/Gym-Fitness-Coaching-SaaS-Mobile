@@ -51,7 +51,7 @@ export type PersonaSelection =
     }
   | {
       status: 'malformed';
-      reason: 'invalid-role-data' | 'preferred-persona-not-verified';
+      reason: 'invalid-role-data' | 'invalid-workspace-context' | 'preferred-persona-not-verified';
     };
 
 export interface NavigationWorkspaceContext {
@@ -145,6 +145,14 @@ export function selectMobilePersona(input: {
     return { status: 'unresolved', reason: 'stale-workspace-context' };
   }
   if (
+    typeof workspaceContext.workspaceId !== 'string' ||
+    workspaceContext.workspaceId.length === 0 ||
+    typeof workspaceContext.membershipId !== 'string' ||
+    workspaceContext.membershipId.length === 0
+  ) {
+    return { status: 'malformed', reason: 'invalid-workspace-context' };
+  }
+  if (
     !Array.isArray(workspaceContext.roles) ||
     workspaceContext.roles.some((role) => !isWorkspaceMembershipRole(role))
   ) {
@@ -199,6 +207,14 @@ export function isMobilePersona(role: unknown): role is MobilePersona {
 
 export function routeBelongsToPersona(route: PersonaRoute, persona: MobilePersona): boolean {
   return route.persona === persona;
+}
+
+export function resolveInitialRouteId(
+  routes: readonly PersonaRoute[],
+  initialRouteId?: RoleAwareRouteId,
+): RoleAwareRouteId | undefined {
+  const route = routes.find((candidate) => candidate.id === initialRouteId) ?? routes[0];
+  return route?.id;
 }
 
 export function createNavigationIdentity(input: {

@@ -7,6 +7,7 @@ export {
   navigationStateContainsSecret,
   personaLabels,
   personaRoutes,
+  resolveInitialRouteId,
   routeBelongsToPersona,
   selectMobilePersona,
 } from './personas';

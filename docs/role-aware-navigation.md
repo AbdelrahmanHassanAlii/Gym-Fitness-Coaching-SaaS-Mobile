@@ -1,8 +1,17 @@
 # MOB-011 Role-Aware Navigation Foundation
 
-MOB-011 adds a native role-aware navigation foundation without adding a routing
-dependency. It is intentionally a presentation shell: Backend authorization,
-MOB-010 access decisions, and MOB-009 session generation remain authoritative.
+MOB-011 adds a native role-aware navigation foundation using React Navigation:
+
+- `@react-navigation/native`
+- `@react-navigation/native-stack`
+- `@react-navigation/bottom-tabs`
+- Expo-compatible `react-native-screens`
+- Expo-compatible `react-native-safe-area-context`
+
+This is a durable navigation foundation for future nested stack/tab flows, not a
+hand-rolled screen-state switch. It remains intentionally presentation-only:
+Backend authorization, MOB-010 access decisions, and MOB-009 session generation
+remain authoritative.
 
 ## Verified Role Source
 
@@ -58,7 +67,12 @@ verified preferred persona from the same membership roles.
 
 MOB-011 does not implement workspace management or live workspace fetching. It
 provides the seam that later stages can feed with verified `/me/workspaces`
-data.
+data. A preferred persona may only select a persona role already present in that
+verified workspace membership role array.
+
+`GYM_OWNER + TRAINER` may enter the Trainer persona only because `TRAINER` is
+explicitly present. `GYM_OWNER` alone and `GYM_MANAGER` alone remain unsupported
+for Mobile V1.
 
 ## Navigation State Safety
 
@@ -69,11 +83,19 @@ The shell identity is bound to:
 - membership ID
 - selected persona
 
-When any of those change, active route state resets to the persona default so
-stale screens cannot remain visible after logout, account replacement, workspace
-replacement, or persona replacement. Navigation state is not persisted and must
-not contain access tokens, refresh tokens, Authorization headers, support session
-IDs, signed URLs, or sensitive permission payloads.
+When any of those change, the root `NavigationContainer` is remounted with a new
+identity key. This clears incompatible stack/tab state so stale screens cannot
+remain visible after logout, account replacement, workspace replacement, or
+persona replacement. Navigation state is not persisted and must not contain
+access tokens, refresh tokens, Authorization headers, support session IDs, signed
+URLs, or sensitive permission payloads.
+
+The current persona roots use a native stack root and bottom-tab persona shell.
+Future product flows can add nested stacks under the persona roots without
+replacing this foundation. Android hardware-back behavior is delegated to React
+Navigation/native stack/tab handling. There is no deep-link configuration in
+MOB-011; when added later, deep links must enter this same auth/persona/access
+boundary.
 
 ## Auth Flow
 
@@ -92,5 +114,3 @@ MOB-011 does not implement:
 - workouts, nutrition, progress, files, push, dashboards, or product API calls
 - NetInfo, offline queues, support console, Platform Admin persona, or JWT
   decoding
-
-No new navigation dependency is introduced.

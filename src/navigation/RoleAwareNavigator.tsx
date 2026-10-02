@@ -1,5 +1,8 @@
-import { type ReactNode, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { type ReactNode } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AuthPanel, useAuthSession, type AuthState } from '@/auth';
 import type { TextDirection } from '@/i18n/locales';
@@ -11,12 +14,25 @@ import {
   createNavigationIdentity,
   personaLabels,
   personaRoutes,
+  resolveInitialRouteId,
   routeBelongsToPersona,
   selectMobilePersona,
   type NavigationWorkspaceContext,
   type PersonaRoute,
   type RoleAwareRouteId,
 } from './personas';
+
+type RootStackParamList = {
+  Initializing: undefined;
+  Auth: undefined;
+  Unavailable: undefined;
+  Persona: undefined;
+};
+
+type PersonaTabParamList = Partial<Record<RoleAwareRouteId, undefined>>;
+
+const RootStack = createNativeStackNavigator<RootStackParamList>();
+const PersonaTabs = createBottomTabNavigator<PersonaTabParamList>();
 
 export interface NavigationSurfaceProps {
   authState: AuthState;
@@ -54,76 +70,114 @@ export function NavigationSurface({
   routes,
   renderAuth,
 }: NavigationSurfaceProps) {
-  const { theme } = useTheme();
-  const styles = createStyles(theme, direction);
   const authenticatedSession =
     authState.status === 'authenticated' && authState.session ? authState.session : null;
   const authGeneration = authenticatedSession?.generation ?? null;
   const selection = selectMobilePersona({ authGeneration, workspaceContext });
-
-  if (authState.status === 'initializing') {
-    return (
-      <View accessibilityRole="summary" style={styles.panel}>
-        <Text style={styles.title}>{t('navigationInitializing')}</Text>
-      </View>
-    );
-  }
-
-  if (!authenticatedSession) {
-    return (
-      <View style={styles.stack}>
-        <Text accessibilityRole="header" style={styles.title}>
-          {t('navigationAuthFlow')}
-        </Text>
-        {renderAuth ? renderAuth() : null}
-      </View>
-    );
-  }
-
-  if (selection.status !== 'selected') {
-    const label =
-      selection.status === 'ambiguous'
-        ? t('navigationAmbiguousPersona')
-        : selection.status === 'unsupported'
-          ? t('navigationUnsupportedPersona')
-          : t('navigationContextUnavailable');
-
-    return (
-      <View accessibilityRole="alert" style={styles.panel}>
-        <Text style={styles.title}>{label}</Text>
-      </View>
-    );
-  }
-
-  const identity = createNavigationIdentity({
-    generation: authenticatedSession.generation,
-    persona: selection.persona,
-    workspaceId: selection.workspaceId,
-    membershipId: selection.membershipId,
-  });
+  const rootState =
+    authState.status === 'initializing'
+      ? 'initializing'
+      : !authenticatedSession
+        ? 'auth'
+        : selection.status === 'selected'
+          ? 'persona'
+          : 'unavailable';
+  const unavailableMessage =
+    selection.status === 'ambiguous'
+      ? 'navigationAmbiguousPersona'
+      : selection.status === 'unsupported'
+        ? 'navigationUnsupportedPersona'
+        : 'navigationContextUnavailable';
+  const selectedRoutes =
+    selection.status === 'selected'
+      ? (routes ?? personaRoutes[selection.persona]).filter((route) =>
+          routeBelongsToPersona(route, selection.persona),
+        )
+      : [];
+  const navigationIdentity =
+    selection.status === 'selected' && authenticatedSession
+      ? createNavigationIdentity({
+          generation: authenticatedSession.generation,
+          persona: selection.persona,
+          workspaceId: selection.workspaceId,
+          membershipId: selection.membershipId,
+        })
+      : `${rootState}:${authGeneration ?? 'none'}`;
 
   return (
-    <PersonaNavigator
-      accessFacts={accessFacts}
-      currentGeneration={authenticatedSession.generation}
-      direction={direction}
-      identity={identity}
-      initialRouteId={initialRouteId}
-      locale={locale}
-      personaLabel={t(personaLabels[selection.persona])}
-      routes={(routes ?? personaRoutes[selection.persona]).filter((route) =>
-        routeBelongsToPersona(route, selection.persona),
-      )}
-      t={t}
-    />
+    <NavigationContainer key={navigationIdentity}>
+      <RootStack.Navigator
+        initialRouteName={
+          rootState === 'initializing'
+            ? 'Initializing'
+            : rootState === 'auth'
+              ? 'Auth'
+              : rootState === 'persona'
+                ? 'Persona'
+                : 'Unavailable'
+        }
+        screenOptions={{
+          animation: 'none',
+          headerShown: false,
+        }}
+      >
+        <RootStack.Screen name="Initializing">
+          {() => (
+            <NavigationStatusScreen
+              direction={direction}
+              label={t('navigationInitializing')}
+              role="summary"
+            />
+          )}
+        </RootStack.Screen>
+        <RootStack.Screen name="Auth">
+          {() => (
+            <NavigationFrame direction={direction}>
+              <AuthHeader direction={direction} label={t('navigationAuthFlow')} />
+              {renderAuth ? renderAuth() : null}
+            </NavigationFrame>
+          )}
+        </RootStack.Screen>
+        <RootStack.Screen name="Unavailable">
+          {() => (
+            <NavigationStatusScreen
+              direction={direction}
+              label={t(unavailableMessage)}
+              role="alert"
+            />
+          )}
+        </RootStack.Screen>
+        <RootStack.Screen name="Persona">
+          {() =>
+            rootState === 'persona' && authenticatedSession && selection.status === 'selected' ? (
+              <PersonaTabNavigator
+                accessFacts={accessFacts}
+                currentGeneration={authenticatedSession.generation}
+                direction={direction}
+                initialRouteId={initialRouteId}
+                locale={locale}
+                personaLabel={t(personaLabels[selection.persona])}
+                routes={selectedRoutes}
+                t={t}
+              />
+            ) : (
+              <NavigationStatusScreen
+                direction={direction}
+                label={t('navigationContextUnavailable')}
+                role="alert"
+              />
+            )
+          }
+        </RootStack.Screen>
+      </RootStack.Navigator>
+    </NavigationContainer>
   );
 }
 
-interface PersonaNavigatorProps {
+interface PersonaTabNavigatorProps {
   accessFacts?: PermissionAccessFacts | null;
   currentGeneration: number;
   direction: TextDirection;
-  identity: string;
   initialRouteId?: RoleAwareRouteId;
   locale: 'en' | 'ar';
   personaLabel: string;
@@ -131,92 +185,163 @@ interface PersonaNavigatorProps {
   t: (key: TranslationKey) => string;
 }
 
-function PersonaNavigator({
+function PersonaTabNavigator({
   accessFacts,
   currentGeneration,
   direction,
-  identity,
   initialRouteId,
   locale,
   personaLabel,
   routes,
   t,
-}: PersonaNavigatorProps) {
+}: PersonaTabNavigatorProps) {
+  const { theme } = useTheme();
+  const initialRouteName = resolveInitialRouteId(routes, initialRouteId);
+
+  return (
+    <PersonaTabs.Navigator
+      backBehavior="firstRoute"
+      initialRouteName={initialRouteName}
+      screenOptions={{
+        headerTitle: personaLabel,
+        headerTitleAlign: direction === 'rtl' ? 'center' : 'left',
+        headerStyle: { backgroundColor: theme.colors.surface },
+        headerTintColor: theme.colors.foreground,
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.mutedForeground,
+        tabBarStyle: {
+          backgroundColor: theme.colors.surface,
+          borderTopColor: theme.colors.border,
+          minHeight: 56,
+        },
+        tabBarLabelStyle: {
+          fontSize: theme.typography.caption,
+          writingDirection: direction,
+        },
+      }}
+    >
+      {routes.map((route) => (
+        <PersonaTabs.Screen
+          key={route.id}
+          name={route.id}
+          options={{
+            title: t(route.labelKey),
+            tabBarAccessibilityLabel: t(route.labelKey),
+          }}
+        >
+          {() => (
+            <RouteScreen
+              accessFacts={accessFacts}
+              currentGeneration={currentGeneration}
+              direction={direction}
+              locale={locale}
+              route={route}
+              t={t}
+            />
+          )}
+        </PersonaTabs.Screen>
+      ))}
+    </PersonaTabs.Navigator>
+  );
+}
+
+interface RouteScreenProps {
+  accessFacts?: PermissionAccessFacts | null;
+  currentGeneration: number;
+  direction: TextDirection;
+  locale: 'en' | 'ar';
+  route: PersonaRoute;
+  t: (key: TranslationKey) => string;
+}
+
+function RouteScreen({
+  accessFacts,
+  currentGeneration,
+  direction,
+  locale,
+  route,
+  t,
+}: RouteScreenProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme, direction);
-  const defaultRouteId = routes.some((route) => route.id === initialRouteId)
-    ? initialRouteId
-    : routes[0]?.id;
-  const [routeState, setRouteState] = useState({ identity, activeRouteId: defaultRouteId });
-  const activeRouteId =
-    routeState.identity === identity && routes.some((route) => route.id === routeState.activeRouteId)
-      ? routeState.activeRouteId
-      : defaultRouteId;
-
-  const activeRoute = useMemo(
-    () => routes.find((route) => route.id === activeRouteId) ?? routes[0],
-    [activeRouteId, routes],
-  );
-  const accessDecision = activeRoute?.requiredPermission
+  const accessDecision = route.requiredPermission
     ? resolveAccessDecision({
-        permission: activeRoute.requiredPermission,
+        permission: route.requiredPermission,
         currentGeneration,
         facts: accessFacts,
       })
     : ({ state: 'allowed', reason: 'allowed' } as const);
 
   return (
-    <View style={styles.stack}>
-      <Text accessibilityRole="header" style={styles.title}>
-        {personaLabel}
-      </Text>
-      <View style={styles.navRow}>
-        {routes.map((route) => {
-          const selected = route.id === activeRoute?.id;
-          return (
-            <Pressable
-              accessibilityLabel={t(route.labelKey)}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              key={route.id}
-              onPress={() => setRouteState({ identity, activeRouteId: route.id })}
-              style={({ pressed }) => [
-                styles.tab,
-                selected && styles.tabSelected,
-                pressed && styles.tabPressed,
-              ]}
-            >
-              <Text style={[styles.tabText, selected && styles.tabSelectedText]}>
-                {t(route.labelKey)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
+    <NavigationFrame direction={direction}>
       {accessDecision.state === 'allowed' ? (
         <View
           accessibilityRole="summary"
           style={styles.screen}
-          testID={activeRoute ? `navigation-screen-${activeRoute.id}` : 'navigation-screen'}
+          testID={`navigation-screen-${route.id}`}
         >
-          <Text style={styles.screenTitle}>
-            {activeRoute ? t(activeRoute.labelKey) : personaLabel}
-          </Text>
+          <Text style={styles.screenTitle}>{t(route.labelKey)}</Text>
         </View>
       ) : (
         <AccessDeniedMessage decision={accessDecision} direction={direction} locale={locale} />
       )}
-    </View>
+    </NavigationFrame>
+  );
+}
+
+function NavigationStatusScreen({
+  direction,
+  label,
+  role,
+}: {
+  direction: TextDirection;
+  label: string;
+  role: 'alert' | 'summary';
+}) {
+  const { theme } = useTheme();
+  const styles = createStyles(theme, direction);
+
+  return (
+    <NavigationFrame direction={direction}>
+      <View accessibilityRole={role} style={styles.panel}>
+        <Text style={styles.title}>{label}</Text>
+      </View>
+    </NavigationFrame>
+  );
+}
+
+function NavigationFrame({
+  children,
+  direction,
+}: {
+  children: ReactNode;
+  direction: TextDirection;
+}) {
+  const { theme } = useTheme();
+  const styles = createStyles(theme, direction);
+
+  return <View style={styles.frame}>{children}</View>;
+}
+
+function AuthHeader({ direction, label }: { direction: TextDirection; label: string }) {
+  const { theme } = useTheme();
+  const styles = createStyles(theme, direction);
+  return (
+    <Text accessibilityRole="header" style={styles.title}>
+      {label}
+    </Text>
   );
 }
 
 function createStyles(theme: ThemeTokens, direction: TextDirection) {
   return StyleSheet.create({
-    stack: {
+    frame: {
+      flex: 1,
       width: '100%',
-      maxWidth: 520,
-      gap: theme.spacing.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: theme.spacing.lg,
+      backgroundColor: theme.colors.background,
       direction,
     },
     panel: {
@@ -238,41 +363,9 @@ function createStyles(theme: ThemeTokens, direction: TextDirection) {
       textAlign: direction === 'rtl' ? 'right' : 'left',
       writingDirection: direction,
     },
-    navRow: {
-      flexDirection: direction === 'rtl' ? 'row-reverse' : 'row',
-      flexWrap: 'wrap',
-      gap: theme.spacing.sm,
-    },
-    tab: {
-      minHeight: 44,
-      minWidth: 96,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: theme.spacing.md,
-      backgroundColor: theme.colors.surfaceRaised,
-      borderColor: theme.colors.border,
-      borderRadius: theme.radius.md,
-      borderWidth: 1,
-    },
-    tabSelected: {
-      backgroundColor: theme.colors.primary,
-      borderColor: theme.colors.focus,
-      borderWidth: 2,
-    },
-    tabPressed: {
-      backgroundColor: theme.colors.pressed,
-    },
-    tabText: {
-      color: theme.colors.foreground,
-      fontSize: theme.typography.body,
-      textAlign: 'center',
-      writingDirection: direction,
-    },
-    tabSelectedText: {
-      color: theme.colors.primaryForeground,
-      fontWeight: '700',
-    },
     screen: {
+      width: '100%',
+      maxWidth: 520,
       minHeight: 88,
       justifyContent: 'center',
       padding: theme.spacing.md,

@@ -152,6 +152,40 @@ describe('role-aware persona selection', () => {
         workspaceContext: { ...context(['TRAINER', 'NUTRITIONIST']), preferredPersona: 'NUTRITIONIST' },
       }),
     ).toMatchObject({ status: 'selected', persona: 'NUTRITIONIST' });
+    expect(
+      selectMobilePersona({
+        authGeneration: 1,
+        workspaceContext: { ...context(['TRAINER', 'NUTRITIONIST']), preferredPersona: 'TRAINEE' },
+      }),
+    ).toMatchObject({ status: 'malformed', reason: 'preferred-persona-not-verified' });
+  });
+
+  it('allows owner plus trainer only because trainer is explicitly present', () => {
+    expect(selectMobilePersona({ authGeneration: 1, workspaceContext: context(['GYM_OWNER']) }))
+      .toMatchObject({ status: 'unsupported' });
+    expect(
+      selectMobilePersona({ authGeneration: 1, workspaceContext: context(['GYM_OWNER', 'TRAINER']) }),
+    ).toMatchObject({ status: 'selected', persona: 'TRAINER' });
+    expect(
+      selectMobilePersona({ authGeneration: 1, workspaceContext: context(['GYM_MANAGER', 'TRAINER']) }),
+    ).toMatchObject({ status: 'selected', persona: 'TRAINER' });
+  });
+
+  it('fails safely for empty roles and malformed workspace or membership context', () => {
+    expect(selectMobilePersona({ authGeneration: 1, workspaceContext: context([]) }))
+      .toMatchObject({ status: 'unsupported', reason: 'no-mobile-persona' });
+    expect(
+      selectMobilePersona({
+        authGeneration: 1,
+        workspaceContext: context(['TRAINER'], 1, '' as WorkspaceId, membershipA),
+      }),
+    ).toMatchObject({ status: 'malformed', reason: 'invalid-workspace-context' });
+    expect(
+      selectMobilePersona({
+        authGeneration: 1,
+        workspaceContext: context(['TRAINER'], 1, workspaceA, '' as WorkspaceMembershipId),
+      }),
+    ).toMatchObject({ status: 'malformed', reason: 'invalid-workspace-context' });
   });
 
   it('renders foundation shells for each supported persona without implementing product workflows', async () => {
@@ -220,6 +254,43 @@ describe('role-aware navigation authorization boundaries', () => {
     });
 
     expect(screen.queryByTestId('navigation-screen-trainer.relationships')).toBeNull();
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
+
+  it('falls back safely when an unknown initial route is supplied', async () => {
+    const screen = await renderNavigation({
+      workspaceContext: context(['TRAINER']),
+      initialRouteId: 'trainer.unknown' as PersonaRoute['id'],
+    });
+
+    expect(screen.getByTestId('navigation-screen-trainer.home')).toBeTruthy();
+    expect(screen.queryByTestId('navigation-screen-trainer.unknown')).toBeNull();
+  });
+
+  it('removes protected content when access becomes unresolved after it was allowed', async () => {
+    const screen = await renderNavigation({
+      workspaceContext: context(['TRAINER']),
+      accessFacts: facts({ decisions: [allow('workouts.read')] }),
+      routes: protectedTrainerRoutes,
+    });
+    expect(screen.getByTestId('navigation-screen-trainer.home')).toBeTruthy();
+
+    await screen.rerender(
+      <ThemeProvider>
+        <NavigationSurface
+          accessFacts={null}
+          authState={authenticated(1)}
+          direction="ltr"
+          locale="en"
+          renderAuth={() => null}
+          routes={protectedTrainerRoutes}
+          t={(key) => translate('en', key)}
+          workspaceContext={context(['TRAINER'])}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByTestId('navigation-screen-trainer.home')).toBeNull();
     expect(screen.getByRole('alert')).toBeTruthy();
   });
 
