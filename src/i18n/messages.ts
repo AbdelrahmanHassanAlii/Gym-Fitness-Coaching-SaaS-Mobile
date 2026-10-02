@@ -33,6 +33,19 @@ const en = {
   navigationProgress: 'Progress',
   navigationRelationships: 'Relationships',
   navigationRouteUnavailable: 'This destination is not available.',
+  traineeHomeTitle: 'Trainee home',
+  traineeWorkspace: 'Workspace',
+  traineeMembership: 'Membership',
+  traineePersona: 'Persona',
+  traineeRelationshipNotSelected: 'Coaching relationship context is not selected yet.',
+  traineeOverviewLoading: 'Loading trainee overview.',
+  traineeOverviewUnavailable: 'Trainee overview is unavailable.',
+  traineeRelationshipStatus: 'Relationship status',
+  traineeAssignedStaff: 'Assigned staff',
+  traineeVisibleSections: 'Visible sections',
+  traineeCompletedSessions: 'Completed sessions',
+  traineeActiveNutritionPlan: 'Active nutrition plan',
+  traineeNone: 'None',
 } as const;
 
 const ar: Record<keyof typeof en, string> = {
@@ -68,6 +81,19 @@ const ar: Record<keyof typeof en, string> = {
   navigationProgress: 'التقدم',
   navigationRelationships: 'العلاقات',
   navigationRouteUnavailable: 'هذه الوجهة غير متاحة.',
+  traineeHomeTitle: 'الرئيسية للمتدرب',
+  traineeWorkspace: 'مساحة العمل',
+  traineeMembership: 'العضوية',
+  traineePersona: 'التجربة',
+  traineeRelationshipNotSelected: 'لم يتم اختيار سياق علاقة التدريب بعد.',
+  traineeOverviewLoading: 'جار تحميل ملخص المتدرب.',
+  traineeOverviewUnavailable: 'ملخص المتدرب غير متاح.',
+  traineeRelationshipStatus: 'حالة العلاقة',
+  traineeAssignedStaff: 'الفريق المعين',
+  traineeVisibleSections: 'الأقسام المتاحة',
+  traineeCompletedSessions: 'الجلسات المكتملة',
+  traineeActiveNutritionPlan: 'خطة التغذية النشطة',
+  traineeNone: 'لا يوجد',
 };
 
 export const MESSAGES: Record<SupportedLocale, Record<TranslationKey, string>> = {

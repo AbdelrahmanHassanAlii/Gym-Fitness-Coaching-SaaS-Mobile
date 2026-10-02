@@ -44,6 +44,15 @@ export interface NavigationSurfaceProps {
   initialRouteId?: RoleAwareRouteId;
   routes?: PersonaRoute[];
   renderAuth?: () => ReactNode;
+  renderRoute?: (input: RouteRenderInput) => ReactNode;
+}
+
+export interface RouteRenderInput {
+  currentGeneration: number;
+  direction: TextDirection;
+  locale: 'en' | 'ar';
+  route: PersonaRoute;
+  t: (key: TranslationKey) => string;
 }
 
 export type RoleAwareNavigatorProps = Omit<NavigationSurfaceProps, 'authState' | 'renderAuth'>;
@@ -67,6 +76,7 @@ export function NavigationSurface({
   workspaceContext,
   accessFacts,
   initialRouteId,
+  renderRoute,
   routes,
   renderAuth,
 }: NavigationSurfaceProps) {
@@ -157,6 +167,7 @@ export function NavigationSurface({
                 initialRouteId={initialRouteId}
                 locale={locale}
                 personaLabel={t(personaLabels[selection.persona])}
+                renderRoute={renderRoute}
                 routes={selectedRoutes}
                 t={t}
               />
@@ -181,6 +192,7 @@ interface PersonaTabNavigatorProps {
   initialRouteId?: RoleAwareRouteId;
   locale: 'en' | 'ar';
   personaLabel: string;
+  renderRoute?: (input: RouteRenderInput) => ReactNode;
   routes: PersonaRoute[];
   t: (key: TranslationKey) => string;
 }
@@ -192,6 +204,7 @@ function PersonaTabNavigator({
   initialRouteId,
   locale,
   personaLabel,
+  renderRoute,
   routes,
   t,
 }: PersonaTabNavigatorProps) {
@@ -235,6 +248,7 @@ function PersonaTabNavigator({
               currentGeneration={currentGeneration}
               direction={direction}
               locale={locale}
+              renderRoute={renderRoute}
               route={route}
               t={t}
             />
@@ -250,6 +264,7 @@ interface RouteScreenProps {
   currentGeneration: number;
   direction: TextDirection;
   locale: 'en' | 'ar';
+  renderRoute?: (input: RouteRenderInput) => ReactNode;
   route: PersonaRoute;
   t: (key: TranslationKey) => string;
 }
@@ -259,6 +274,7 @@ function RouteScreen({
   currentGeneration,
   direction,
   locale,
+  renderRoute,
   route,
   t,
 }: RouteScreenProps) {
@@ -275,13 +291,15 @@ function RouteScreen({
   return (
     <NavigationFrame direction={direction}>
       {accessDecision.state === 'allowed' ? (
-        <View
-          accessibilityRole="summary"
-          style={styles.screen}
-          testID={`navigation-screen-${route.id}`}
-        >
-          <Text style={styles.screenTitle}>{t(route.labelKey)}</Text>
-        </View>
+        (renderRoute?.({ currentGeneration, direction, locale, route, t }) ?? (
+          <View
+            accessibilityRole="summary"
+            style={styles.screen}
+            testID={`navigation-screen-${route.id}`}
+          >
+            <Text style={styles.screenTitle}>{t(route.labelKey)}</Text>
+          </View>
+        ))
       ) : (
         <AccessDeniedMessage decision={accessDecision} direction={direction} locale={locale} />
       )}

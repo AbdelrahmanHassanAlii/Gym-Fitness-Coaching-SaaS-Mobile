@@ -5,3 +5,4 @@ export * from './files/dto';
 export * from './notifications/dto';
 export * from './permissions/dto';
 export * from './relationships/dto';
+export * from './workspaces/dto';
