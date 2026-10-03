@@ -1,4 +1,4 @@
-import type { ApiClient } from '@/api';
+import { createMalformedResponseError, type ApiClient } from '@/api';
 import type { MyWorkspaceContextDto, MyWorkspacesResponseDto } from '@/contracts';
 
 import { parseMyWorkspaceContexts } from './guards';
@@ -13,12 +13,6 @@ export async function fetchMyWorkspaceContexts(input: {
     signal: input.signal,
   });
   const parsed = parseMyWorkspaceContexts(response);
-  if (!parsed) throw malformed('My workspace context response was malformed.');
+  if (!parsed) throw createMalformedResponseError('My workspace context response was malformed.');
   return parsed;
-}
-
-function malformed(message: string): Error {
-  const error = new Error(message);
-  error.name = 'MalformedWorkspaceContextResponseError';
-  return error;
 }

@@ -118,6 +118,16 @@ function fakeApiClient(
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 async function renderWithProviders(element: React.ReactElement) {
   const queryClient = createAppQueryClient();
   testQueryClients.add(queryClient);
@@ -391,5 +401,88 @@ describe('MOB-013 Trainer and Assistant UI', () => {
       expect(screen.getByRole('alert')).toBeTruthy();
     });
     expect(screen.getByText('Relationships are unavailable.')).toBeTruthy();
+  });
+
+  it('does not treat list membership as authorization when Assistant dashboard actor kind mismatches', async () => {
+    const context = resolveTrainerAssistantWorkspaceContext({
+      generation: 1,
+      rows: [
+        workspaceRow({
+          membership: { ...workspaceRow().membership, roles: ['ASSISTANT_TRAINER'] },
+        }),
+      ],
+    });
+    expect(context.status).toBe('ready');
+    if (context.status !== 'ready') return;
+
+    const screen = await renderWithProviders(
+      <StaffExperienceScreen
+        apiClient={fakeApiClient((options: ApiRequestOptions<never, never>) => {
+          if (String(options.path).endsWith('/relationships')) return listResponse([relationship(relationshipA)]);
+          return dashboard('TRAINER', relationshipA);
+        })}
+        context={context}
+        direction="ltr"
+        routeKind="relationships"
+        t={(key) => translate('en', key)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('staff-relationship-list')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeTruthy();
+    });
+    expect(screen.getByText('Relationship dashboard is unavailable.')).toBeTruthy();
+    expect(screen.queryByTestId('staff-dashboard-summary')).toBeNull();
+  });
+
+  it('keeps a late relationship A dashboard result from rendering after relationship B is selected', async () => {
+    const context = resolveTrainerAssistantWorkspaceContext({ generation: 1, rows: [workspaceRow()] });
+    expect(context.status).toBe('ready');
+    if (context.status !== 'ready') return;
+    const lateA = deferred<unknown>();
+
+    const screen = await renderWithProviders(
+      <StaffExperienceScreen
+        apiClient={fakeApiClient((options: ApiRequestOptions<never, never>) => {
+          const path = String(options.path);
+          if (path.endsWith('/relationships')) {
+            return listResponse([relationship(relationshipA), relationship(relationshipB)]);
+          }
+          if (path.endsWith('/relationship-a/dashboard')) return lateA.promise;
+          return {
+            data: {
+              ...dashboard('TRAINER', relationshipB).data,
+              training: { summary: { completedSessions: 8 } },
+            },
+          };
+        })}
+        context={context}
+        direction="ltr"
+        routeKind="relationships"
+        t={(key) => translate('en', key)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('staff-relationship-list')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
+    fireEvent.press(screen.getByRole('button', { name: /relationship-b/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('staff-dashboard-summary')).toBeTruthy();
+      expect(screen.getByText('8')).toBeTruthy();
+    });
+
+    lateA.resolve(dashboard('TRAINER', relationshipA));
+    await waitFor(() => {
+      expect(screen.getByText('8')).toBeTruthy();
+      expect(screen.queryByText('5')).toBeNull();
+    });
   });
 });

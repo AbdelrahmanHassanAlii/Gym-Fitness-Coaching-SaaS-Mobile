@@ -1,4 +1,4 @@
-import type { ApiClient } from '@/api';
+import { createMalformedResponseError, type ApiClient } from '@/api';
 import type {
   RelationshipId,
   WorkspaceId,
@@ -30,12 +30,6 @@ export async function fetchTraineeRelationshipDashboard(input: {
     workspaceId: input.workspaceId,
     relationshipId: input.relationshipId,
   });
-  if (!parsed) throw malformed('Trainee relationship dashboard response was malformed.');
+  if (!parsed) throw createMalformedResponseError('Trainee relationship dashboard response was malformed.');
   return parsed;
-}
-
-function malformed(message: string): Error {
-  const error = new Error(message);
-  error.name = 'MalformedTraineeResponseError';
-  return error;
 }

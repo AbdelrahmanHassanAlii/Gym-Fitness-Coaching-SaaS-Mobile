@@ -12,11 +12,14 @@ select persona presentation only; they do not grant API access.
 | Purpose | Method | Route | Ownership |
 | --- | --- | --- | --- |
 | Authenticated workspace/persona context | `GET` | `/api/v1/me/workspaces` | Shared context foundation from MOB-012. MOB-013 consumes it for exactly one active `TRAINER` or `ASSISTANT_TRAINER` context. |
-| Staff relationship list | `GET` | `/api/v1/workspaces/:workspaceId/relationships` | Backend-authorized relationship source for the current workspace. Mobile does not infer assignments from role or workspace membership. |
+| Staff relationship list | `GET` | `/api/v1/workspaces/:workspaceId/relationships` | Backend-authorized workspace relationship discovery guarded by `trainees.read`. It is not an assigned-only endpoint. Mobile must not treat list membership as relationship authorization. |
 | Relationship dashboard summary | `GET` | `/api/v1/workspaces/:workspaceId/relationships/:relationshipId/dashboard` | Backend-authorized relationship summary. Mobile guards workspace, relationship, and actor kind before display. |
 
 MOB-013 invents no Backend route. It does not use Trainer or Assistant role as
-a substitute for Backend relationship access.
+a substitute for Backend relationship access. A relationship appearing in the
+workspace list is only a discovery fact; the relationship dashboard endpoint
+must independently authorize the selected relationship before Mobile renders
+relationship detail.
 
 ## Shared Workspace Context
 
@@ -31,12 +34,14 @@ not a hidden default.
 ## Relationship Source
 
 `relationshipId` always means the coaching relationship ID. MOB-013 obtains it
-from the verified Backend relationship list. It must never be replaced with a
-trainee user ID, membership ID, workspace ID, assignment ID, or route-local
-guess.
+from Backend relationship data and treats it as a candidate for detail loading,
+not as authorization proof. It must never be replaced with a trainee user ID,
+membership ID, workspace ID, assignment ID, or route-local guess.
 
-The dashboard query is disabled until a relationship row from the verified list
-is selected.
+The dashboard query is disabled until a relationship row from the Backend list
+is selected. If the dashboard response is denied, unavailable, has mismatched
+identity, or reports an actor kind incompatible with the current persona, Mobile
+does not render the relationship detail.
 
 ## Trainer And Assistant Boundary
 

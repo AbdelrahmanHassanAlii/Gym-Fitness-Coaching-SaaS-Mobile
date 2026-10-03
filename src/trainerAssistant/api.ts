@@ -1,4 +1,4 @@
-import type { ApiClient } from '@/api';
+import { createMalformedResponseError, type ApiClient } from '@/api';
 import type { RelationshipId, WorkspaceId } from '@/contracts';
 
 import type {
@@ -24,7 +24,7 @@ export async function fetchStaffRelationships(input: {
     signal: input.signal,
   });
   const parsed = parseStaffRelationships(response, { workspaceId: input.workspaceId });
-  if (!parsed) throw malformed('Staff relationships response was malformed.');
+  if (!parsed) throw createMalformedResponseError('Staff relationships response was malformed.');
   return parsed;
 }
 
@@ -47,12 +47,6 @@ export async function fetchStaffRelationshipDashboard(input: {
     relationshipId: input.relationshipId,
     persona: input.persona,
   });
-  if (!parsed) throw malformed('Staff relationship dashboard response was malformed.');
+  if (!parsed) throw createMalformedResponseError('Staff relationship dashboard response was malformed.');
   return parsed;
-}
-
-function malformed(message: string): Error {
-  const error = new Error(message);
-  error.name = 'MalformedStaffExperienceResponseError';
-  return error;
 }
