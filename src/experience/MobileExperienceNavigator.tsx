@@ -6,6 +6,7 @@ import { useAuthSession } from '@/auth';
 import type { TextDirection } from '@/i18n/locales';
 import type { TranslationKey } from '@/i18n/messages';
 import { RoleAwareNavigator, type PersonaRoute } from '@/navigation';
+import { NutritionistExperienceScreen } from '@/nutritionist';
 import { protectedQueryScope } from '@/query';
 import { StaffExperienceScreen } from '@/trainerAssistant';
 import { TraineeHomeScreen } from '@/trainee';
@@ -23,6 +24,12 @@ const implementedRoutes: PersonaRoute[] = [
   {
     id: 'assistant.relationships',
     persona: 'ASSISTANT_TRAINER',
+    labelKey: 'navigationRelationships',
+  },
+  { id: 'nutritionist.home', persona: 'NUTRITIONIST', labelKey: 'navigationHome' },
+  {
+    id: 'nutritionist.relationships',
+    persona: 'NUTRITIONIST',
     labelKey: 'navigationRelationships',
   },
 ];
@@ -84,7 +91,7 @@ function AuthenticatedMobileExperienceNavigator({
     if (!workspaceQuery.data) return null;
     return resolveUniqueMobileWorkspaceContext({
       generation,
-      personas: ['TRAINEE', 'TRAINER', 'ASSISTANT_TRAINER'],
+      personas: ['TRAINEE', 'TRAINER', 'ASSISTANT_TRAINER', 'NUTRITIONIST'],
       rows: workspaceQuery.data,
     });
   }, [generation, workspaceQuery.data]);
@@ -109,6 +116,17 @@ function AuthenticatedMobileExperienceNavigator({
         if (route.persona === 'TRAINER' || route.persona === 'ASSISTANT_TRAINER') {
           return (
             <StaffExperienceScreen
+              apiClient={apiClient}
+              context={readyContext}
+              direction={direction}
+              routeKind={route.id.endsWith('.relationships') ? 'relationships' : 'home'}
+              t={t}
+            />
+          );
+        }
+        if (route.persona === 'NUTRITIONIST') {
+          return (
+            <NutritionistExperienceScreen
               apiClient={apiClient}
               context={readyContext}
               direction={direction}
