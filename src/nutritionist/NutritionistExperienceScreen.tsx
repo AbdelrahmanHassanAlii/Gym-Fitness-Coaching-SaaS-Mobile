@@ -264,7 +264,10 @@ function NutritionistRelationshipDetail({
   };
   direction: TextDirection;
   plansQuery: {
-    data?: { id: string; name: string; status: string }[];
+    data?: {
+      data: { id: string; name: string; status: string }[];
+      nextCursor?: string | null;
+    };
     isError: boolean;
     isLoading: boolean;
   };
@@ -300,9 +303,14 @@ function NutritionistRelationshipDetail({
       />
       <SummaryRow
         direction={direction}
-        label={t('nutritionistNutritionPlanCount')}
-        value={String(plansQuery.data.length)}
+        label={t('nutritionistNutritionPlansShown')}
+        value={String(plansQuery.data.data.length)}
       />
+      {plansQuery.data.nextCursor ? (
+        <Text style={styles.muted} testID="nutritionist-plan-preview-limited">
+          {t('nutritionistNutritionPlanPreviewLimited')}
+        </Text>
+      ) : null}
       <SummaryRow
         direction={direction}
         label={t('nutritionistNutritionTrackedDays')}

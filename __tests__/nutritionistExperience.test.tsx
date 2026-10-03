@@ -26,7 +26,7 @@ import {
   parseNutritionPlanList,
   resolveNutritionistWorkspaceContext,
 } from '@/nutritionist';
-import { protectedQueryScope, createAppQueryClient } from '@/query';
+import { protectedQueryScope, createAppQueryClient, shouldRetryQuery } from '@/query';
 import { ThemeProvider } from '@/theme';
 import { resolveUniqueMobileWorkspaceContext } from '@/workspaceContext';
 
@@ -401,8 +401,65 @@ describe('MOB-014 Nutritionist UI', () => {
     );
     expect(screen.getByText('nutrition')).toBeTruthy();
     expect(screen.getByText('Balanced plan')).toBeTruthy();
+    expect(screen.getByText('Nutrition plans shown')).toBeTruthy();
+    expect(screen.getByText('More nutrition plans may be available.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Training changes unavailable' }).props.accessibilityState)
       .toMatchObject({ disabled: true });
+  });
+
+  it('treats target endpoint 403 responses as unavailable without local relationship authorization', async () => {
+    const context = resolveNutritionistWorkspaceContext({ generation: 1, rows: [workspaceRow()] });
+    expect(context.status).toBe('ready');
+    if (context.status !== 'ready') return;
+
+    const screen = await renderWithProviders(
+      <NutritionistExperienceScreen
+        apiClient={fakeApiClient((options: ApiRequestOptions<never, never>) => {
+          const path = String(options.path);
+          if (path.endsWith('/relationships')) return listResponse([relationship(relationshipA)]);
+          throw createBackendError(403, {
+            error: { code: 'PERMISSION_DENIED', message: 'Forbidden' },
+          });
+        })}
+        context={context}
+        direction="ltr"
+        routeKind="relationships"
+        t={(key) => translate('en', key)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('nutritionist-relationship-list')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByRole('button', { name: /relationship-a ACTIVE/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Nutrition review is unavailable.')).toBeTruthy();
+    });
+  });
+
+  it('keeps malformed protected nutrition responses fail-closed and non-retryable', async () => {
+    let thrown: unknown;
+    try {
+      await fetchNutritionistNutritionPlans({
+        apiClient: fakeApiClient({
+          data: [
+            {
+              ...plansResponse().data[0],
+              relationshipId: relationshipB,
+            },
+          ],
+          nextCursor: 'plan-1',
+        }),
+        workspaceId,
+        relationshipId: relationshipA,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({ kind: 'malformed_response' });
+    expect(shouldRetryQuery(0, thrown)).toBe(false);
   });
 
   it('renders Arabic RTL Nutritionist screen with accessible selected relationship state', async () => {

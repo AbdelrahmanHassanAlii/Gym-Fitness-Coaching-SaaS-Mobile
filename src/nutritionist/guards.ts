@@ -1,6 +1,7 @@
 import {
   hasExplicitTimezoneOffset,
   isCoachingRelationshipStatus,
+  type Cursor,
   type RelationshipId,
   type WorkspaceId,
 } from '@/contracts';
@@ -15,6 +16,7 @@ import type {
   NutritionAnalyticsDto,
   NutritionistRelationshipDashboardDto,
   NutritionistRelationshipSummaryDto,
+  NutritionPlanListResponseDto,
   NutritionPlanStatus,
   NutritionPlanSummaryDto,
 } from './contracts';
@@ -103,7 +105,7 @@ export function parseNutritionistRelationshipDashboard(
 export function parseNutritionPlanList(
   value: unknown,
   expected: { workspaceId: WorkspaceId; relationshipId: RelationshipId },
-): NutritionPlanSummaryDto[] | null {
+): NutritionPlanListResponseDto | null {
   if (!value || typeof value !== 'object') return null;
   const data = (value as { data?: unknown }).data;
   const nextCursor = (value as { nextCursor?: unknown }).nextCursor;
@@ -116,7 +118,7 @@ export function parseNutritionPlanList(
     if (!row) return null;
     rows.push(row);
   }
-  return rows;
+  return { data: rows, nextCursor: nextCursor ? (nextCursor as Cursor) : null };
 }
 
 export function parseNutritionAnalytics(

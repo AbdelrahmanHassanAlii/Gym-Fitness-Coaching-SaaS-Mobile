@@ -22,6 +22,7 @@ export type {
   NutritionAnalyticsDto,
   NutritionistRelationshipDashboardDto,
   NutritionistRelationshipSummaryDto,
+  NutritionPlanListResponseDto,
   NutritionPlanSummaryDto,
 } from './contracts';
 export type { NutritionistWorkspaceResolution } from './guards';

@@ -9,7 +9,6 @@ import type {
   NutritionistRelationshipListResponseDto,
   NutritionistRelationshipSummaryDto,
   NutritionPlanListResponseDto,
-  NutritionPlanSummaryDto,
 } from './contracts';
 import {
   parseNutritionAnalytics,
@@ -61,7 +60,7 @@ export async function fetchNutritionistNutritionPlans(input: {
   workspaceId: WorkspaceId;
   relationshipId: RelationshipId;
   signal?: AbortSignal;
-}): Promise<NutritionPlanSummaryDto[]> {
+}): Promise<NutritionPlanListResponseDto> {
   const response = await input.apiClient.request<
     NutritionPlanListResponseDto,
     { limit: number; includeArchived: boolean }
