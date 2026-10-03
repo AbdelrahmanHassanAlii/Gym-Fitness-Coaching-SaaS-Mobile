@@ -1,30 +1,17 @@
 import type { ApiClient } from '@/api';
 import type {
-  MyWorkspaceContextDto,
-  MyWorkspacesResponseDto,
   RelationshipId,
   WorkspaceId,
 } from '@/contracts';
+import { fetchMyWorkspaceContexts } from '@/workspaceContext';
 
 import type {
   TraineeRelationshipDashboardDto,
   TraineeRelationshipDashboardResponseDto,
 } from './contracts';
-import { parseMyWorkspaceContexts, parseRelationshipDashboard } from './guards';
+import { parseRelationshipDashboard } from './guards';
 
-export async function fetchMyWorkspaceContexts(input: {
-  apiClient: ApiClient;
-  signal?: AbortSignal;
-}): Promise<MyWorkspaceContextDto[]> {
-  const response = await input.apiClient.request<MyWorkspacesResponseDto>({
-    method: 'GET',
-    path: '/me/workspaces',
-    signal: input.signal,
-  });
-  const parsed = parseMyWorkspaceContexts(response);
-  if (!parsed) throw malformed('My workspace context response was malformed.');
-  return parsed;
-}
+export { fetchMyWorkspaceContexts };
 
 export async function fetchTraineeRelationshipDashboard(input: {
   apiClient: ApiClient;

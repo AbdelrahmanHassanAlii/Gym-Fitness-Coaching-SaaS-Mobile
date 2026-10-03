@@ -46,6 +46,21 @@ const en = {
   traineeCompletedSessions: 'Completed sessions',
   traineeActiveNutritionPlan: 'Active nutrition plan',
   traineeNone: 'None',
+  trainerHomeTitle: 'Trainer home',
+  assistantHomeTitle: 'Assistant trainer home',
+  trainerWorkspace: 'Workspace',
+  trainerMembership: 'Membership',
+  trainerPersona: 'Persona',
+  trainerRelationshipsLoading: 'Loading relationships.',
+  trainerRelationshipsUnavailable: 'Relationships are unavailable.',
+  trainerRelationshipsEmpty: 'No visible relationships.',
+  trainerVisibleRelationships: 'Visible relationships',
+  trainerFirstRelationshipStatus: 'First relationship status',
+  trainerRelationshipSelectPrompt: 'Select a coaching relationship to view its dashboard.',
+  trainerDashboardLoading: 'Loading relationship dashboard.',
+  trainerDashboardUnavailable: 'Relationship dashboard is unavailable.',
+  trainerRelationshipStatus: 'Relationship status',
+  trainerVisibleSections: 'Visible sections',
 } as const;
 
 const ar: Record<keyof typeof en, string> = {
@@ -94,6 +109,21 @@ const ar: Record<keyof typeof en, string> = {
   traineeCompletedSessions: 'الجلسات المكتملة',
   traineeActiveNutritionPlan: 'خطة التغذية النشطة',
   traineeNone: 'لا يوجد',
+  trainerHomeTitle: 'الرئيسية للمدرب',
+  assistantHomeTitle: 'الرئيسية للمدرب المساعد',
+  trainerWorkspace: 'مساحة العمل',
+  trainerMembership: 'العضوية',
+  trainerPersona: 'التجربة',
+  trainerRelationshipsLoading: 'جار تحميل العلاقات.',
+  trainerRelationshipsUnavailable: 'العلاقات غير متاحة.',
+  trainerRelationshipsEmpty: 'لا توجد علاقات متاحة.',
+  trainerVisibleRelationships: 'العلاقات المتاحة',
+  trainerFirstRelationshipStatus: 'حالة أول علاقة',
+  trainerRelationshipSelectPrompt: 'اختر علاقة تدريب لعرض لوحة المعلومات.',
+  trainerDashboardLoading: 'جار تحميل لوحة العلاقة.',
+  trainerDashboardUnavailable: 'لوحة العلاقة غير متاحة.',
+  trainerRelationshipStatus: 'حالة العلاقة',
+  trainerVisibleSections: 'الأقسام المتاحة',
 };
 
 export const MESSAGES: Record<SupportedLocale, Record<TranslationKey, string>> = {

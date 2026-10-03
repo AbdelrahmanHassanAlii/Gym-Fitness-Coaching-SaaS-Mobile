@@ -149,7 +149,7 @@ describe('MOB-012 trainee context selection', () => {
         generation: 1,
         rows: [workspaceRow({ membership: { ...workspaceRow().membership, roles: ['TRAINER'] } })],
       }),
-    ).toMatchObject({ status: 'unresolved', reason: 'no-trainee-workspace' });
+    ).toMatchObject({ status: 'unresolved', reason: 'no-matching-workspace' });
 
     expect(
       resolveTraineeWorkspaceContext({
@@ -162,7 +162,7 @@ describe('MOB-012 trainee context selection', () => {
           }),
         ],
       }),
-    ).toMatchObject({ status: 'unresolved', reason: 'multiple-trainee-workspaces' });
+    ).toMatchObject({ status: 'unresolved', reason: 'multiple-matching-workspaces' });
   });
 
   it('rejects malformed live workspace context before it can reach Trainee navigation', () => {
