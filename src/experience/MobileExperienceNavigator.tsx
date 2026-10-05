@@ -8,6 +8,7 @@ import type { TranslationKey } from '@/i18n/messages';
 import { RoleAwareNavigator, type PersonaRoute } from '@/navigation';
 import { NutritionistExperienceScreen } from '@/nutritionist';
 import { protectedQueryScope } from '@/query';
+import { TrainingExperienceScreen } from '@/training';
 import { StaffExperienceScreen } from '@/trainerAssistant';
 import { TraineeHomeScreen } from '@/trainee';
 import {
@@ -18,14 +19,17 @@ import {
 
 const implementedRoutes: PersonaRoute[] = [
   { id: 'trainee.home', persona: 'TRAINEE', labelKey: 'navigationHome' },
+  { id: 'trainee.training', persona: 'TRAINEE', labelKey: 'navigationTraining' },
   { id: 'trainer.home', persona: 'TRAINER', labelKey: 'navigationHome' },
   { id: 'trainer.relationships', persona: 'TRAINER', labelKey: 'navigationRelationships' },
+  { id: 'trainer.training', persona: 'TRAINER', labelKey: 'navigationTraining' },
   { id: 'assistant.home', persona: 'ASSISTANT_TRAINER', labelKey: 'navigationHome' },
   {
     id: 'assistant.relationships',
     persona: 'ASSISTANT_TRAINER',
     labelKey: 'navigationRelationships',
   },
+  { id: 'assistant.training', persona: 'ASSISTANT_TRAINER', labelKey: 'navigationTraining' },
   { id: 'nutritionist.home', persona: 'NUTRITIONIST', labelKey: 'navigationHome' },
   {
     id: 'nutritionist.relationships',
@@ -106,6 +110,20 @@ function AuthenticatedMobileExperienceNavigator({
         if (route.id === 'trainee.home') {
           return (
             <TraineeHomeScreen
+              apiClient={apiClient}
+              context={readyContext}
+              direction={direction}
+              t={t}
+            />
+          );
+        }
+        if (
+          route.id === 'trainee.training' ||
+          route.id === 'trainer.training' ||
+          route.id === 'assistant.training'
+        ) {
+          return (
+            <TrainingExperienceScreen
               apiClient={apiClient}
               context={readyContext}
               direction={direction}

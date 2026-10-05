@@ -116,6 +116,11 @@ function fakeApiClient(response: unknown, calls: ApiRequestOptions<never, never>
 
 async function renderWithProviders(element: React.ReactElement) {
   const queryClient = createAppQueryClient();
+  queryClient.setDefaultOptions({
+    ...queryClient.getDefaultOptions(),
+    queries: { ...queryClient.getDefaultOptions().queries, gcTime: Infinity },
+    mutations: { ...queryClient.getDefaultOptions().mutations, gcTime: Infinity },
+  });
   testQueryClients.add(queryClient);
   return await render(
     <QueryClientProvider client={queryClient}>

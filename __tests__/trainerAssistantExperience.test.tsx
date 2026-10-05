@@ -130,6 +130,11 @@ function deferred<T>() {
 
 async function renderWithProviders(element: React.ReactElement) {
   const queryClient = createAppQueryClient();
+  queryClient.setDefaultOptions({
+    ...queryClient.getDefaultOptions(),
+    queries: { ...queryClient.getDefaultOptions().queries, gcTime: Infinity },
+    mutations: { ...queryClient.getDefaultOptions().mutations, gcTime: Infinity },
+  });
   testQueryClients.add(queryClient);
   return await render(
     <QueryClientProvider client={queryClient}>
@@ -337,7 +342,7 @@ describe('MOB-013 Trainer and Assistant UI', () => {
     await waitFor(() => {
       expect(screen.getByTestId('staff-relationship-list')).toBeTruthy();
     });
-    fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId('staff-dashboard-summary')).toBeTruthy();
@@ -431,7 +436,7 @@ describe('MOB-013 Trainer and Assistant UI', () => {
     await waitFor(() => {
       expect(screen.getByTestId('staff-relationship-list')).toBeTruthy();
     });
-    fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeTruthy();
@@ -471,8 +476,8 @@ describe('MOB-013 Trainer and Assistant UI', () => {
     await waitFor(() => {
       expect(screen.getByTestId('staff-relationship-list')).toBeTruthy();
     });
-    fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
-    fireEvent.press(screen.getByRole('button', { name: /relationship-b/i }));
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-b/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId('staff-dashboard-summary')).toBeTruthy();

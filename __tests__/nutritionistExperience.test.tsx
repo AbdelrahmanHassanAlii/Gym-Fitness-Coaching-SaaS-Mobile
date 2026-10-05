@@ -185,6 +185,11 @@ function deferred<T>() {
 
 async function renderWithProviders(element: React.ReactElement) {
   const queryClient = createAppQueryClient();
+  queryClient.setDefaultOptions({
+    ...queryClient.getDefaultOptions(),
+    queries: { ...queryClient.getDefaultOptions().queries, gcTime: Infinity },
+    mutations: { ...queryClient.getDefaultOptions().mutations, gcTime: Infinity },
+  });
   testQueryClients.add(queryClient);
   return await render(
     <QueryClientProvider client={queryClient}>
@@ -387,7 +392,7 @@ describe('MOB-014 Nutritionist UI', () => {
     await waitFor(() => {
       expect(screen.getByTestId('nutritionist-relationship-list')).toBeTruthy();
     });
-    fireEvent.press(screen.getByRole('button', { name: /relationship-a ACTIVE/i }));
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-a ACTIVE/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId('nutritionist-relationship-detail')).toBeTruthy();
@@ -431,7 +436,7 @@ describe('MOB-014 Nutritionist UI', () => {
     await waitFor(() => {
       expect(screen.getByTestId('nutritionist-relationship-list')).toBeTruthy();
     });
-    fireEvent.press(screen.getByRole('button', { name: /relationship-a ACTIVE/i }));
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-a ACTIVE/i }));
 
     await waitFor(() => {
       expect(screen.getByText('Nutrition review is unavailable.')).toBeTruthy();
@@ -482,7 +487,7 @@ describe('MOB-014 Nutritionist UI', () => {
       expect(screen.getByTestId('nutritionist-relationship-list')).toBeTruthy();
     });
     const row = screen.getByRole('button', { name: /relationship-a ACTIVE/i });
-    fireEvent.press(row);
+    await fireEvent.press(row);
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /relationship-a ACTIVE/i }).props.accessibilityState)
         .toMatchObject({ selected: true });
@@ -547,8 +552,8 @@ describe('MOB-014 Nutritionist UI', () => {
     await waitFor(() => {
       expect(screen.getByTestId('nutritionist-relationship-list')).toBeTruthy();
     });
-    fireEvent.press(screen.getByRole('button', { name: /relationship-a ACTIVE/i }));
-    fireEvent.press(screen.getByRole('button', { name: /relationship-b ACTIVE/i }));
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-a ACTIVE/i }));
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-b ACTIVE/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId('nutritionist-relationship-detail')).toBeTruthy();
