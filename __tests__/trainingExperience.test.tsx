@@ -533,7 +533,7 @@ describe('MOB-015 training UI', () => {
     expect(screen.queryByText(/complete history|all workouts|all personal records/i)).toBeNull();
   });
 
-  it('sends workout patch and completion commands with CAS/idempotency without local role authorization', async () => {
+  it('patches user-edited set values without completing the workout', async () => {
     const calls: ApiRequestOptions<never, never>[] = [];
     const screen = await renderWithProviders(
       <TrainingExperienceScreen
@@ -549,10 +549,14 @@ describe('MOB-015 training UI', () => {
     });
     await fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
     await waitFor(() => {
-      expect(screen.getByText('Save first set')).toBeTruthy();
+      expect(screen.getByText('Save set')).toBeTruthy();
     });
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Save first set' }));
+    await fireEvent.changeText(screen.getByLabelText('Reps'), '8');
+    await fireEvent.changeText(screen.getByLabelText('Weight'), '112.5');
+    await fireEvent.changeText(screen.getByLabelText('Set notes'), 'Felt controlled');
+    await fireEvent.press(screen.getByRole('checkbox', { name: /set completed/i }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save set' }));
     await waitFor(() => {
       expect(calls.some((call) => call.method === 'PATCH')).toBe(true);
     });
@@ -565,9 +569,10 @@ describe('MOB-015 training UI', () => {
           sets: [
             {
               setKey: 'set-1',
-              reps: 5,
-              weight: 100,
-              completed: false,
+              reps: 8,
+              weight: 112.5,
+              completed: true,
+              notes: 'Felt controlled',
             },
           ],
         },
@@ -585,6 +590,23 @@ describe('MOB-015 training UI', () => {
       expect(completeCall?.body).toEqual({ expectedVersion: 7 });
       expect(completeCall?.idempotencyKey).toMatch(/^mob015:complete:/);
     });
+  });
+
+  it('does not expose staff correction UX to Trainee self context', async () => {
+    const screen = await renderWithProviders(
+      <TrainingExperienceScreen
+        apiClient={trainingApi()}
+        context={readyContext('TRAINEE')}
+        direction="ltr"
+        t={(key) => translate('en', key)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Strength base')).toBeTruthy();
+    });
+    expect(screen.queryByLabelText('Correction reason')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Submit correction' })).toBeNull();
   });
 
   it('submits only a user-entered correction reason without fabricating semantic data', async () => {
@@ -619,6 +641,70 @@ describe('MOB-015 training UI', () => {
       });
       expect(JSON.stringify(correctionCall?.body)).not.toMatch(/Mobile trainer review correction|updated from app/i);
       expect(correctionCall?.idempotencyKey).toMatch(/^mob015:correct:/);
+    });
+  });
+
+  it('uses payload-aware correction keys when the reason changes after failure', async () => {
+    const calls: ApiRequestOptions<never, never>[] = [];
+    const apiClient = fakeApiClient((options: ApiRequestOptions<never, never>) => {
+      const path = String(options.path);
+      if (path.endsWith('/relationships')) return relationshipsResponse();
+      if (path.endsWith('/programs')) return programsResponse();
+      if (path.endsWith('/program-active/progress')) return progressResponse();
+      if (path.endsWith('/workouts/current')) return currentWorkoutResponse();
+      if (path.endsWith('/workouts')) return workoutsResponse(relationshipA, 'workout-completed');
+      if (path.endsWith('/personal-record-events')) return eventsResponse();
+      if (path.endsWith('/personal-records')) return recordsResponse();
+      if (path.endsWith('/workout-completed/corrections')) {
+        throw createBackendError(503, {
+          error: { code: 'SERVICE_UNAVAILABLE', message: 'Temporary failure' },
+        });
+      }
+      throw new Error(`Unhandled path ${path}`);
+    }, calls);
+    const screen = await renderWithProviders(
+      <TrainingExperienceScreen
+        apiClient={apiClient}
+        context={readyContext('TRAINER')}
+        direction="ltr"
+        t={(key) => translate('en', key)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('training-relationship-list')).toBeTruthy();
+    });
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
+    await waitFor(() => {
+      expect(screen.getByText('Submit correction')).toBeTruthy();
+    });
+
+    await fireEvent.changeText(screen.getByLabelText('Correction reason'), 'Reason A');
+    await fireEvent.press(screen.getByRole('button', { name: 'Submit correction' }));
+    await waitFor(() => {
+      expect(calls.filter((call) => String(call.path).endsWith('/workout-completed/corrections')))
+        .toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Submit correction' }).props.accessibilityState)
+        .toMatchObject({ disabled: false });
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Submit correction' }));
+    await waitFor(() => {
+      expect(calls.filter((call) => String(call.path).endsWith('/workout-completed/corrections')))
+        .toHaveLength(2);
+    });
+    await fireEvent.changeText(screen.getByLabelText('Correction reason'), 'Reason B');
+    await fireEvent.press(screen.getByRole('button', { name: 'Submit correction' }));
+
+    await waitFor(() => {
+      const correctionCalls = calls.filter((call) =>
+        String(call.path).endsWith('/workout-completed/corrections'),
+      );
+      expect(correctionCalls).toHaveLength(3);
+      expect(correctionCalls[0]?.idempotencyKey).toBe(correctionCalls[1]?.idempotencyKey);
+      expect(correctionCalls[2]?.idempotencyKey).not.toBe(correctionCalls[0]?.idempotencyKey);
+      expect(correctionCalls[2]?.body).toMatchObject({ reason: 'Reason B' });
     });
   });
 
@@ -679,6 +765,70 @@ describe('MOB-015 training UI', () => {
       expect(startCalls).toHaveLength(2);
       expect(startCalls[0]?.idempotencyKey).toBe(startCalls[1]?.idempotencyKey);
       expect(startCalls[0]?.idempotencyKey).not.toMatch(/\d{12,}$/);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start workout' }).props.accessibilityState)
+        .toMatchObject({ disabled: false });
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Start workout' }));
+    await waitFor(() => {
+      const startCalls = calls.filter((call) => String(call.path).endsWith('/workouts/start'));
+      expect(startCalls).toHaveLength(3);
+      expect(startCalls[2]?.idempotencyKey).not.toBe(startCalls[0]?.idempotencyKey);
+    });
+  });
+
+  it('coalesces rapid duplicate command invocations while the logical command is pending', async () => {
+    const calls: ApiRequestOptions<never, never>[] = [];
+    const start = deferred<unknown>();
+    const apiClient = fakeApiClient((options: ApiRequestOptions<never, never>) => {
+      const path = String(options.path);
+      if (path.endsWith('/relationships')) return relationshipsResponse();
+      if (path.endsWith('/programs')) return programsResponse();
+      if (path.endsWith('/program-active/progress')) return progressResponse();
+      if (path.endsWith('/workouts/current')) return { data: { workout: null } };
+      if (path.endsWith('/workouts')) return workoutsResponse();
+      if (path.endsWith('/personal-record-events')) return eventsResponse();
+      if (path.endsWith('/personal-records')) return recordsResponse();
+      if (path.endsWith('/workouts/start')) return start.promise;
+      throw new Error(`Unhandled path ${path}`);
+    }, calls);
+
+    const screen = await renderWithProviders(
+      <TrainingExperienceScreen
+        apiClient={apiClient}
+        context={readyContext('TRAINER')}
+        direction="ltr"
+        t={(key) => translate('en', key)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('training-relationship-list')).toBeTruthy();
+    });
+    await fireEvent.press(screen.getByRole('button', { name: /relationship-a/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start workout' }).props.accessibilityState)
+        .toMatchObject({ disabled: false });
+    });
+
+    const button = screen.getByRole('button', { name: 'Start workout' });
+    await fireEvent.press(button);
+    await fireEvent.press(button);
+
+    await waitFor(() => {
+      expect(calls.filter((call) => String(call.path).endsWith('/workouts/start'))).toHaveLength(1);
+    });
+    start.resolve(workoutMutationResponse());
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start workout' }).props.accessibilityState)
+        .toMatchObject({ disabled: false });
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Start workout' }));
+    await waitFor(() => {
+      const startCalls = calls.filter((call) => String(call.path).endsWith('/workouts/start'));
+      expect(startCalls).toHaveLength(2);
+      expect(startCalls[1]?.idempotencyKey).not.toBe(startCalls[0]?.idempotencyKey);
     });
   });
 
@@ -752,6 +902,70 @@ describe('MOB-015 training UI', () => {
     await waitFor(() => {
       expect(screen.getByText('Hypertrophy base')).toBeTruthy();
       expect(screen.queryByText('Strength base')).toBeNull();
+    });
+  });
+
+  it('keeps retry command identity across unmount and remount for the same logical command', async () => {
+    const calls: ApiRequestOptions<never, never>[] = [];
+    let startAttempts = 0;
+    const apiClient = fakeApiClient((options: ApiRequestOptions<never, never>) => {
+      const path = String(options.path);
+      if (path.endsWith('/me/relationship')) return traineeRelationshipResponse();
+      if (path.endsWith('/programs')) return programsResponse();
+      if (path.endsWith('/program-active/progress')) return progressResponse();
+      if (path.endsWith('/workouts/current')) return { data: { workout: null } };
+      if (path.endsWith('/workouts')) return workoutsResponse();
+      if (path.endsWith('/personal-record-events')) return eventsResponse();
+      if (path.endsWith('/personal-records')) return recordsResponse();
+      if (path.endsWith('/workouts/start')) {
+        startAttempts += 1;
+        if (startAttempts === 1) {
+          throw createBackendError(503, {
+            error: { code: 'SERVICE_UNAVAILABLE', message: 'Temporary failure' },
+          });
+        }
+        return workoutMutationResponse();
+      }
+      throw new Error(`Unhandled path ${path}`);
+    }, calls);
+
+    const firstScreen = await renderWithProviders(
+      <TrainingExperienceScreen
+        apiClient={apiClient}
+        context={readyContext('TRAINEE')}
+        direction="ltr"
+        t={(key) => translate('en', key)}
+      />,
+    );
+    await waitFor(() => {
+      expect(firstScreen.getByRole('button', { name: 'Start workout' }).props.accessibilityState)
+        .toMatchObject({ disabled: false });
+    });
+    await fireEvent.press(firstScreen.getByRole('button', { name: 'Start workout' }));
+    await waitFor(() => {
+      expect(calls.filter((call) => String(call.path).endsWith('/workouts/start'))).toHaveLength(1);
+    });
+    const firstKey = calls.find((call) => String(call.path).endsWith('/workouts/start'))?.idempotencyKey;
+    firstScreen.unmount();
+
+    const secondScreen = await renderWithProviders(
+      <TrainingExperienceScreen
+        apiClient={apiClient}
+        context={readyContext('TRAINEE')}
+        direction="ltr"
+        t={(key) => translate('en', key)}
+      />,
+    );
+    await waitFor(() => {
+      expect(secondScreen.getByRole('button', { name: 'Start workout' }).props.accessibilityState)
+        .toMatchObject({ disabled: false });
+    });
+    await fireEvent.press(secondScreen.getByRole('button', { name: 'Start workout' }));
+
+    await waitFor(() => {
+      const startCalls = calls.filter((call) => String(call.path).endsWith('/workouts/start'));
+      expect(startCalls).toHaveLength(2);
+      expect(startCalls[1]?.idempotencyKey).toBe(firstKey);
     });
   });
 

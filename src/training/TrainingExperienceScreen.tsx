@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ApiClient } from '@/api';
@@ -30,7 +30,19 @@ type ReadyTrainingContext = Extract<StaffWorkspaceResolution, { status: 'ready' 
 
 interface CommandKeyStore {
   keys: Map<string, IdempotencyKey>;
+  inFlight: Map<string, Promise<unknown>>;
   sequence: number;
+}
+
+const commandKeyRegistry: CommandKeyStore = { keys: new Map(), inFlight: new Map(), sequence: 0 };
+const maxCommandKeys = 100;
+
+interface SetEditorState {
+  setKey: string;
+  reps: string;
+  weight: string;
+  completed: boolean;
+  notes: string;
 }
 
 interface TrainingExperienceScreenProps {
@@ -52,7 +64,7 @@ export function TrainingExperienceScreen({
   const persona = context.workspaceContext.preferredPersona;
   const [selectedRelationshipId, setSelectedRelationshipId] = useState<RelationshipId | null>(null);
   const [correctionReason, setCorrectionReason] = useState('');
-  const commandKeys = useRef<CommandKeyStore>({ keys: new Map(), sequence: 0 });
+  const [setEditorOverride, setSetEditorOverride] = useState<SetEditorState | null>(null);
   const traineeRelationshipQuery = useQuery({
     enabled: persona === 'TRAINEE',
     queryKey: traineeRelationshipKey(context),
@@ -164,44 +176,56 @@ export function TrainingExperienceScreen({
     mutationFn: async () => {
       const relationshipId = requireRelationshipId(target);
       const signature = commandSignature('start', context, relationshipId);
-      const idempotencyKey = stableCommandKey(commandKeys.current, signature);
-      const result = await startWorkout({
-        apiClient,
-        workspaceId: context.workspace.id,
-        relationshipId,
-        idempotencyKey,
-      });
-      retireCommandKey(commandKeys.current, signature);
-      return result;
+      return runIdempotentCommand(commandKeyRegistry, signature, (idempotencyKey) =>
+        startWorkout({
+          apiClient,
+          workspaceId: context.workspace.id,
+          relationshipId,
+          idempotencyKey,
+        }),
+      );
     },
     onSuccess: invalidateTraining,
   });
   const patchMutation = useMutation({
-    mutationFn: (workout: WorkoutDto) =>
-      patchWorkout({
-        apiClient,
-        workspaceId: context.workspace.id,
-        relationshipId: requireRelationshipId(target),
-        workoutId: workout.id,
-        body: firstSetPatch(workout, context),
-      }),
+    mutationFn: (workout: WorkoutDto) => {
+      const body = firstSetPatch(workout, context, setEditor);
+      if (!body) throw new Error('Set values are invalid.');
+      const relationshipId = requireRelationshipId(target);
+      const signature = commandSignature(
+        'patch-set',
+        context,
+        relationshipId,
+        workout.id,
+        workout.version,
+        commandPayloadFingerprint(body),
+      );
+      return runCommand(commandKeyRegistry, signature, () =>
+        patchWorkout({
+          apiClient,
+          workspaceId: context.workspace.id,
+          relationshipId,
+          workoutId: workout.id,
+          body,
+        }),
+      );
+    },
     onSuccess: invalidateTraining,
   });
   const completeMutation = useMutation({
     mutationFn: async (workout: WorkoutDto) => {
       const relationshipId = requireRelationshipId(target);
       const signature = commandSignature('complete', context, relationshipId, workout.id, workout.version);
-      const idempotencyKey = stableCommandKey(commandKeys.current, signature);
-      const result = await completeWorkout({
-        apiClient,
-        workspaceId: context.workspace.id,
-        relationshipId,
-        workoutId: workout.id,
-        body: { expectedVersion: workout.version },
-        idempotencyKey,
-      });
-      retireCommandKey(commandKeys.current, signature);
-      return result;
+      return runIdempotentCommand(commandKeyRegistry, signature, (idempotencyKey) =>
+        completeWorkout({
+          apiClient,
+          workspaceId: context.workspace.id,
+          relationshipId,
+          workoutId: workout.id,
+          body: { expectedVersion: workout.version },
+          idempotencyKey,
+        }),
+      );
     },
     onSuccess: invalidateTraining,
   });
@@ -210,21 +234,28 @@ export function TrainingExperienceScreen({
       const reason = correctionReason.trim();
       if (!reason) throw new Error('A correction reason is required.');
       const relationshipId = requireRelationshipId(target);
-      const signature = commandSignature('correct', context, relationshipId, workout.id, workout.version);
-      const idempotencyKey = stableCommandKey(commandKeys.current, signature);
-      const result = await correctWorkout({
-        apiClient,
-        workspaceId: context.workspace.id,
+      const body = {
+        ...fullWorkoutPatch(workout, context),
+        reason,
+      };
+      const signature = commandSignature(
+        'correct',
+        context,
         relationshipId,
-        workoutId: workout.id,
-        body: {
-          ...fullWorkoutPatch(workout, context),
-          reason,
-        },
-        idempotencyKey,
-      });
-      retireCommandKey(commandKeys.current, signature);
-      return result;
+        workout.id,
+        workout.version,
+        commandPayloadFingerprint(body),
+      );
+      return runIdempotentCommand(commandKeyRegistry, signature, (idempotencyKey) =>
+        correctWorkout({
+          apiClient,
+          workspaceId: context.workspace.id,
+          relationshipId,
+          workoutId: workout.id,
+          body,
+          idempotencyKey,
+        }),
+      );
     },
     onSuccess: () => {
       setCorrectionReason('');
@@ -236,6 +267,12 @@ export function TrainingExperienceScreen({
   const completedWorkout =
     workoutsQuery.data?.data.find((workout) => workout.status === 'COMPLETED') ?? null;
   const firstIncompleteSet = currentWorkout ? findFirstIncompleteSet(currentWorkout) : null;
+  const setEditor = firstIncompleteSet
+    ? setEditorOverride?.setKey === firstIncompleteSet.set.setKey
+      ? setEditorOverride
+      : setEditorFromSet(firstIncompleteSet.set)
+    : null;
+  const canShowCorrection = persona === 'TRAINER' || persona === 'ASSISTANT_TRAINER';
   const isBusy =
     startMutation.isPending ||
     patchMutation.isPending ||
@@ -377,6 +414,58 @@ export function TrainingExperienceScreen({
                 value={String(recordEventsQuery.data?.data.length ?? 0)}
               />
 
+              {firstIncompleteSet && setEditor ? (
+                <View style={styles.editor} testID="training-set-editor">
+                  <Text style={styles.sectionTitle}>{t('trainingSetEditorTitle')}</Text>
+                  <TextInput
+                    accessibilityLabel={t('trainingSetReps')}
+                    editable={!isBusy}
+                    keyboardType="number-pad"
+                    onChangeText={(value) => updateSetEditor(setSetEditorOverride, setEditor, { reps: value })}
+                    placeholder={t('trainingSetReps')}
+                    placeholderTextColor={theme.colors.mutedForeground}
+                    style={styles.input}
+                    value={setEditor.reps}
+                  />
+                  <TextInput
+                    accessibilityLabel={t('trainingSetWeight')}
+                    editable={!isBusy}
+                    keyboardType="decimal-pad"
+                    onChangeText={(value) => updateSetEditor(setSetEditorOverride, setEditor, { weight: value })}
+                    placeholder={t('trainingSetWeight')}
+                    placeholderTextColor={theme.colors.mutedForeground}
+                    style={styles.input}
+                    value={setEditor.weight}
+                  />
+                  <TextInput
+                    accessibilityLabel={t('trainingSetNotes')}
+                    editable={!isBusy}
+                    onChangeText={(value) => updateSetEditor(setSetEditorOverride, setEditor, { notes: value })}
+                    placeholder={t('trainingSetNotes')}
+                    placeholderTextColor={theme.colors.mutedForeground}
+                    style={styles.input}
+                    value={setEditor.notes}
+                  />
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: setEditor.completed, disabled: isBusy }}
+                    disabled={isBusy}
+                    onPress={() =>
+                      updateSetEditor(setSetEditorOverride, setEditor, { completed: !setEditor.completed })
+                    }
+                    style={({ pressed }) => [
+                      styles.checkboxRow,
+                      pressed && !isBusy && styles.relationshipRowPressed,
+                    ]}
+                  >
+                    <Text style={styles.rowLabel}>{t('trainingSetCompleted')}</Text>
+                    <Text style={styles.rowValue}>
+                      {setEditor.completed ? t('trainingSetCompletedYes') : t('trainingSetCompletedNo')}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
               <View style={styles.actionRow}>
                 <CommandButton
                   disabled={Boolean(currentWorkout) || isBusy}
@@ -385,9 +474,16 @@ export function TrainingExperienceScreen({
                   onPress={() => startMutation.mutate()}
                 />
                 <CommandButton
-                  disabled={!currentWorkout || currentWorkout.status !== 'IN_PROGRESS' || !firstIncompleteSet || isBusy}
+                  disabled={
+                    !currentWorkout ||
+                    currentWorkout.status !== 'IN_PROGRESS' ||
+                    !firstIncompleteSet ||
+                    !setEditor ||
+                    !isSetEditorValid(setEditor) ||
+                    isBusy
+                  }
                   direction={direction}
-                  label={t('trainingSaveFirstSet')}
+                  label={t('trainingSaveSet')}
                   onPress={() => currentWorkout && patchMutation.mutate(currentWorkout)}
                 />
                 <CommandButton
@@ -396,14 +492,16 @@ export function TrainingExperienceScreen({
                   label={t('trainingCompleteWorkout')}
                   onPress={() => currentWorkout && completeMutation.mutate(currentWorkout)}
                 />
-                <CommandButton
-                  disabled={!completedWorkout || !correctionReason.trim() || isBusy}
-                  direction={direction}
-                  label={t('trainingSubmitCorrection')}
-                  onPress={() => completedWorkout && correctionMutation.mutate(completedWorkout)}
-                />
+                {canShowCorrection ? (
+                  <CommandButton
+                    disabled={!completedWorkout || !correctionReason.trim() || isBusy}
+                    direction={direction}
+                    label={t('trainingSubmitCorrection')}
+                    onPress={() => completedWorkout && correctionMutation.mutate(completedWorkout)}
+                  />
+                ) : null}
               </View>
-              {completedWorkout ? (
+              {canShowCorrection && completedWorkout ? (
                 <TextInput
                   accessibilityLabel={t('trainingCorrectionReason')}
                   editable={!isBusy}
@@ -533,6 +631,7 @@ function commandSignature(
   relationshipId: RelationshipId,
   resourceId = 'none',
   version = 0,
+  payload = 'none',
 ): string {
   return [
     'mob015',
@@ -544,12 +643,17 @@ function commandSignature(
     relationshipId,
     resourceId,
     String(version),
+    payload,
   ].join(':');
 }
 
 function stableCommandKey(store: CommandKeyStore, signature: string): IdempotencyKey {
   const existing = store.keys.get(signature);
   if (existing) return existing;
+  if (store.keys.size >= maxCommandKeys) {
+    const oldest = store.keys.keys().next().value as string | undefined;
+    if (oldest) store.keys.delete(oldest);
+  }
   store.sequence += 1;
   const key = `${signature}:${store.sequence}` as IdempotencyKey;
   store.keys.set(signature, key);
@@ -560,15 +664,44 @@ function retireCommandKey(store: CommandKeyStore, signature: string) {
   store.keys.delete(signature);
 }
 
-function firstSetPatch(workout: WorkoutDto, context: ReadyTrainingContext): WorkoutPatchBodyDto {
+function runCommand<T>(store: CommandKeyStore, signature: string, execute: () => Promise<T>): Promise<T> {
+  const current = store.inFlight.get(signature) as Promise<T> | undefined;
+  if (current) return current;
+  const promise = execute().finally(() => {
+    store.inFlight.delete(signature);
+  });
+  store.inFlight.set(signature, promise);
+  return promise;
+}
+
+function runIdempotentCommand<T>(
+  store: CommandKeyStore,
+  signature: string,
+  execute: (idempotencyKey: IdempotencyKey) => Promise<T>,
+): Promise<T> {
+  return runCommand(store, signature, async () => {
+    const idempotencyKey = stableCommandKey(store, signature);
+    const result = await execute(idempotencyKey);
+    retireCommandKey(store, signature);
+    return result;
+  });
+}
+
+function firstSetPatch(
+  workout: WorkoutDto,
+  context: ReadyTrainingContext,
+  editor: SetEditorState | null,
+): WorkoutPatchBodyDto | null {
   const first = findFirstIncompleteSet(workout);
-  if (!first) return fullWorkoutPatch(workout, context);
+  if (!first || !editor || editor.setKey !== first.set.setKey) return null;
+  const setPatch = editorToPatchSet(editor);
+  if (!setPatch) return null;
   return {
     expectedVersion: workout.version,
     exercises: [
       {
         workoutExerciseKey: first.exercise.workoutExerciseKey,
-        sets: [toPatchSet(first.set)],
+        sets: [setPatch],
       },
     ],
     clientMutationId: clientMutationId('patch-first-set', context, workout),
@@ -623,6 +756,72 @@ function toPatchSet(set: WorkoutDto['exercises'][number]['sets'][number]) {
     completed: set.completed,
     ...(set.notes !== undefined ? { notes: set.notes } : {}),
   };
+}
+
+function setEditorFromSet(set: WorkoutDto['exercises'][number]['sets'][number]): SetEditorState {
+  return {
+    setKey: set.setKey,
+    reps: set.reps !== undefined ? String(set.reps) : '',
+    weight: set.weight !== undefined ? String(set.weight) : '',
+    completed: set.completed,
+    notes: set.notes ?? '',
+  };
+}
+
+function updateSetEditor(
+  update: (value: SetEditorState | null | ((current: SetEditorState | null) => SetEditorState | null)) => void,
+  fallback: SetEditorState | null,
+  patch: Partial<SetEditorState>,
+) {
+  update((current) => {
+    const base = current?.setKey === fallback?.setKey ? current : fallback;
+    return base ? { ...base, ...patch } : base;
+  });
+}
+
+function editorToPatchSet(editor: SetEditorState) {
+  const reps = optionalInteger(editor.reps);
+  const weight = optionalNumber(editor.weight);
+  if (reps === null || weight === null) return null;
+  return {
+    setKey: editor.setKey,
+    ...(weight !== undefined ? { weight } : {}),
+    ...(reps !== undefined ? { reps } : {}),
+    completed: editor.completed,
+    ...(editor.notes.trim() ? { notes: editor.notes.trim() } : {}),
+  };
+}
+
+function isSetEditorValid(editor: SetEditorState) {
+  return optionalInteger(editor.reps) !== null && optionalNumber(editor.weight) !== null;
+}
+
+function optionalInteger(value: string): number | undefined | null {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!/^\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
+
+function optionalNumber(value: string): number | undefined | null {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function commandPayloadFingerprint(value: unknown): string {
+  return JSON.stringify(sortForFingerprint(value));
+}
+
+function sortForFingerprint(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortForFingerprint);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, sortForFingerprint(entry)]),
+  );
 }
 
 function isTrainingLoading(...states: boolean[]) {
@@ -773,6 +972,26 @@ function createStyles(theme: ThemeTokens, direction: TextDirection) {
       borderRadius: theme.radius.sm,
       borderWidth: 1,
       fontSize: theme.typography.body,
+      textAlign: direction === 'rtl' ? 'right' : 'left',
+      writingDirection: direction,
+    },
+    editor: {
+      gap: theme.spacing.sm,
+    },
+    checkboxRow: {
+      alignItems: 'center',
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.sm,
+      borderWidth: 1,
+      flexDirection: direction === 'rtl' ? 'row-reverse' : 'row',
+      justifyContent: 'space-between',
+      minHeight: 44,
+      padding: theme.spacing.sm,
+    },
+    sectionTitle: {
+      color: theme.colors.foreground,
+      fontSize: theme.typography.body,
+      fontWeight: '700',
       textAlign: direction === 'rtl' ? 'right' : 'left',
       writingDirection: direction,
     },
