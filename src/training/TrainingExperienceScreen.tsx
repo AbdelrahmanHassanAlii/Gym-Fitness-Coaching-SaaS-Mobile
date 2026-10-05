@@ -37,6 +37,19 @@ interface CommandKeyStore {
 const commandKeyRegistry: CommandKeyStore = { keys: new Map(), inFlight: new Map(), sequence: 0 };
 const maxCommandKeys = 100;
 
+export function __resetTrainingCommandKeyRegistryForTests() {
+  commandKeyRegistry.keys.clear();
+  commandKeyRegistry.inFlight.clear();
+  commandKeyRegistry.sequence = 0;
+}
+
+export function __runTrainingIdempotentCommandForTests<T>(
+  signature: string,
+  execute: (idempotencyKey: IdempotencyKey) => Promise<T>,
+) {
+  return runIdempotentCommand(commandKeyRegistry, signature, execute);
+}
+
 interface SetEditorState {
   setKey: string;
   reps: string;
@@ -272,7 +285,7 @@ export function TrainingExperienceScreen({
       ? setEditorOverride
       : setEditorFromSet(firstIncompleteSet.set)
     : null;
-  const canShowCorrection = persona === 'TRAINER' || persona === 'ASSISTANT_TRAINER';
+  const canShowCorrection = persona === 'TRAINER';
   const isBusy =
     startMutation.isPending ||
     patchMutation.isPending ||
@@ -651,8 +664,7 @@ function stableCommandKey(store: CommandKeyStore, signature: string): Idempotenc
   const existing = store.keys.get(signature);
   if (existing) return existing;
   if (store.keys.size >= maxCommandKeys) {
-    const oldest = store.keys.keys().next().value as string | undefined;
-    if (oldest) store.keys.delete(oldest);
+    throw new Error('Retry-safe command key capacity exceeded.');
   }
   store.sequence += 1;
   const key = `${signature}:${store.sequence}` as IdempotencyKey;

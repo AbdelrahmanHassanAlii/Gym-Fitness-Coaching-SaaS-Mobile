@@ -36,6 +36,10 @@ import {
   trainingRelationshipDiscoveryKey,
   workoutsKey,
 } from '@/training';
+import {
+  __resetTrainingCommandKeyRegistryForTests,
+  __runTrainingIdempotentCommandForTests,
+} from '@/training/TrainingExperienceScreen';
 import { resolveUniqueMobileWorkspaceContext } from '@/workspaceContext';
 
 const workspaceId = 'workspace-1' as WorkspaceId;
@@ -46,6 +50,7 @@ const relationshipB = 'relationship-b' as RelationshipId;
 const testQueryClients = new Set<ReturnType<typeof createAppQueryClient>>();
 
 afterEach(async () => {
+  __resetTrainingCommandKeyRegistryForTests();
   await cleanup();
   for (const client of testQueryClients) {
     await client.cancelQueries();
@@ -82,7 +87,9 @@ function workspaceRow(input: Partial<MyWorkspaceContextDto> = {}): MyWorkspaceCo
   };
 }
 
-function readyContext(role: 'TRAINEE' | 'TRAINER' | 'ASSISTANT_TRAINER' = 'TRAINER') {
+function readyContext(
+  role: 'TRAINEE' | 'TRAINER' | 'ASSISTANT_TRAINER' | 'NUTRITIONIST' = 'TRAINER',
+) {
   const resolved = resolveUniqueMobileWorkspaceContext({
     generation: 15,
     personas: ['TRAINEE', 'TRAINER', 'ASSISTANT_TRAINER', 'NUTRITIONIST'],
@@ -609,6 +616,39 @@ describe('MOB-015 training UI', () => {
     expect(screen.queryByRole('button', { name: 'Submit correction' })).toBeNull();
   });
 
+  it('does not expose correction UX to Assistant Trainer or Nutritionist contexts', async () => {
+    const assistantScreen = await renderWithProviders(
+      <TrainingExperienceScreen
+        apiClient={trainingApi()}
+        context={readyContext('ASSISTANT_TRAINER')}
+        direction="ltr"
+        t={(key) => translate('en', key)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(assistantScreen.getByTestId('training-relationship-list')).toBeTruthy();
+    });
+    await fireEvent.press(assistantScreen.getByRole('button', { name: /relationship-a/i }));
+    await waitFor(() => {
+      expect(assistantScreen.getByText('Strength base')).toBeTruthy();
+    });
+    expect(assistantScreen.queryByLabelText('Correction reason')).toBeNull();
+    expect(assistantScreen.queryByRole('button', { name: 'Submit correction' })).toBeNull();
+
+    const nutritionistScreen = await renderWithProviders(
+      <TrainingExperienceScreen
+        apiClient={trainingApi()}
+        context={readyContext('NUTRITIONIST')}
+        direction="ltr"
+        t={(key) => translate('en', key)}
+      />,
+    );
+
+    expect(nutritionistScreen.queryByLabelText('Correction reason')).toBeNull();
+    expect(nutritionistScreen.queryByRole('button', { name: 'Submit correction' })).toBeNull();
+  });
+
   it('submits only a user-entered correction reason without fabricating semantic data', async () => {
     const calls: ApiRequestOptions<never, never>[] = [];
     const screen = await renderWithProviders(
@@ -967,6 +1007,43 @@ describe('MOB-015 training UI', () => {
       expect(startCalls).toHaveLength(2);
       expect(startCalls[1]?.idempotencyKey).toBe(firstKey);
     });
+  });
+
+  it('preserves ambiguous retry keys under registry capacity pressure', async () => {
+    __resetTrainingCommandKeyRegistryForTests();
+    const calls: { signature: string; idempotencyKey: string }[] = [];
+    const attemptsBySignature = new Map<string, number>();
+
+    async function runAmbiguousCommand(signature: string) {
+      return await __runTrainingIdempotentCommandForTests(signature, async (idempotencyKey) => {
+        calls.push({ signature, idempotencyKey });
+        const attempt = attemptsBySignature.get(signature) ?? 0;
+        attemptsBySignature.set(signature, attempt + 1);
+        if (attempt === 0) {
+          throw createBackendError(503, {
+            error: { code: 'SERVICE_UNAVAILABLE', message: 'Temporary failure' },
+          });
+        }
+        return { ok: true };
+      });
+    }
+
+    await expect(runAmbiguousCommand('capacity:reason-0')).rejects.toMatchObject({ status: 503 });
+    const firstKey = calls.find((call) => call.signature === 'capacity:reason-0')?.idempotencyKey;
+
+    for (let index = 1; index < 100; index += 1) {
+      await expect(runAmbiguousCommand(`capacity:reason-${index}`)).rejects.toMatchObject({ status: 503 });
+    }
+
+    await expect(runAmbiguousCommand('capacity:overflow')).rejects.toThrow(
+      'Retry-safe command key capacity exceeded.',
+    );
+    expect(calls.find((call) => call.signature === 'capacity:overflow')).toBeUndefined();
+
+    await runAmbiguousCommand('capacity:reason-0');
+    const reasonZeroCalls = calls.filter((call) => call.signature === 'capacity:reason-0');
+    expect(reasonZeroCalls).toHaveLength(2);
+    expect(reasonZeroCalls[1]?.idempotencyKey).toBe(firstKey);
   });
 
 });
